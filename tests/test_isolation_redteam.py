@@ -39,6 +39,7 @@ import os
 import pathlib
 import re
 import secrets
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -351,6 +352,67 @@ class Reach(KernelCase):
         self.assertEqual(without, with_bad,
                          "an unresolvable command token changed the reach: a name that resolves "
                          f"to nothing must grant nothing. Added: {sorted(with_bad - without)}")
+
+    def test_a_granted_tree_history_reaches_the_repo_that_owns_it(self):
+        """The 2026-10-27 reach gap the A1 execution found second. The ventures live at
+        `$HOME/organism/organism/ventures/<dept>` and the git dir at `$HOME/organism/.git` — one
+        or more levels ABOVE every grant — so a reach built only from the roots cannot read a
+        commit. Measured live: the `genome doctor` contract probe reported
+        `not a git repo — append-only and staleness checks need history` for the agent user while
+        `healthy:true` for the operator, and `getfacl` on the parent `.git` carried no agent
+        entry. The probe's message names the wrong object; the denial is a directory up."""
+        from holon.execution import isolation
+        repo = self.tmp / "repo"
+        (repo / "pool").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-q", "--allow-empty",
+                        "-m", "seed"], check=True,
+                       env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+        self.home.config_file.write_text(self.pipeline + "\n" + self.config +
+                                        "\n[isolation]\nagent_user = \"%s\"\n" % os.getlogin() +
+                                        "\n[scope.dept.pool]\n"
+                                        f"roots = [\"{repo}/pool\"]\n")
+        self.k = Kernel(self.home)
+        reads = {str(p) for p in isolation.reach(self.k)["reads"]}
+        plan = isolation.setup_plan(self.k)
+        self.k.close()
+        self.assertIn(str(repo / ".git"), reads,
+                      "the git dir that owns a granted root is not in the reach: every "
+                      "history-reading check scores 'not a git repo' for the agent user")
+        self.assertNotIn(str(repo / "pool"), set(), "sanity: the pool itself is the granted root")
+        granted = {tuple(c)[-1] for c in plan["acl"] if c[0] == "setfacl"}
+        self.assertIn(str(repo / ".git"), granted,
+                      "the ACL plan does not grant the owning repo: the grant exists in reach() "
+                      "and never reaches the filesystem")
+
+    def test_a_root_with_no_repository_grants_no_history(self):
+        """The red-team of the git grant. A directory with no repository on its parent chain must
+        grant nothing, not the nearest ancestor that happens to be one — otherwise a scratch root
+        under a developer's home inherits every history-bearing directory above it and the reach
+        widens silently. Measured against the same deployment with the root inside a repo versus
+        outside one."""
+        from holon.execution import isolation
+        repo = self.tmp / "repo"
+        (repo / "pool").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        outside = self.tmp.parent / (self.tmp.name + "-nogit")
+        outside.mkdir(parents=True, exist_ok=True)
+        try:
+            (outside / "pool").mkdir(parents=True, exist_ok=True)
+            self.home.config_file.write_text(self.pipeline + "\n" + self.config +
+                                            "\n[isolation]\nagent_user = \"%s\"\n" % os.getlogin() +
+                                            "\n[scope.dept.pool]\n"
+                                            f"roots = [\"{outside}/pool\"]\n")
+            self.k = Kernel(self.home)
+            reads = {str(p) for p in isolation.reach(self.k)["reads"]}
+            self.k.close()
+            for git in (str(repo / ".git"), str(self.tmp / ".git"), str(outside / ".git")):
+                self.assertNotIn(git, reads,
+                                 f"a root outside a repository granted {git}: the git grant must "
+                                 "follow the repository that owns the root, and only that one")
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
 
     def test_a_pooled_units_service_binary_lands_in_the_read_reach(self):
         """Fix 3 of the capability-layer plan. The fence half already existed: a pooled unit's

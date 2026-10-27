@@ -477,6 +477,51 @@ def reach(k) -> dict:
             if bin_path.exists():
                 reads.add(bin_path.parent)
                 reads.add(bin_path)
+    # A granted tree's history: `git rev-parse HEAD` reads the repository that OWNS the tree, and
+    # on this deployment that repository sits one or more levels ABOVE every venture directory —
+    # the ventures live at `$HOME/organism/organism/ventures/<dept>` and the git dir is at
+    # `$HOME/organism/.git`, so no root on the list reaches it. Measured 2026-10-27: the venture
+    # roots all carried `user:<agent>:r-x` and `getfacl` on `$HOME/organism/.git` carried no agent
+    # entry at all, so the `genome doctor` contract probe scored `healthy:true` for the operator
+    # and reported `not a git repo — append-only and staleness checks need history` for the agent
+    # user. The check's message names the wrong object (the repo is right there, readable by the
+    # operator), and the real denial is two directories up.
+    #
+    # Read-only, and only the git dir itself: objects and refs are what history reads. Not the
+    # worktree, already granted above, and never the config that would name credentials — `git`
+    # needs only objects, refs and HEAD to resolve a commit. A root with no repository on its
+    # parent chain grants nothing (the walk stops at the filesystem root, and `rev-parse`
+    # returns nothing), which the second guard measures.
+    # A granted tree's history: `git rev-parse HEAD` reads the repository that OWNS the tree, and
+    # on this deployment that repository sits one or more levels ABOVE every venture directory —
+    # the ventures live at `$HOME/organism/organism/ventures/<dept>` and the git dir is at
+    # `$HOME/organism/.git`, so no root on the list reaches it. Measured 2026-10-27: the venture
+    # roots all carried `user:<agent>:r-x` and `getfacl` on `$HOME/organism/.git` carried no agent
+    # entry at all, so the `genome doctor` contract probe scored `healthy:true` for the operator
+    # and reported `not a git repo — append-only and staleness checks need history` for the agent
+    # user. The check's message names the wrong object (the repo is right there, readable by the
+    # operator), and the real denial is two directories up.
+    #
+    # Read-only, and only the git dir itself: objects and refs are what history reads. Not the
+    # worktree, already granted above, and never the config that would name credentials — `git`
+    # needs only objects, refs and HEAD to resolve a commit. A root with no repository on its
+    # parent chain grants nothing (the walk stops at the filesystem root, and `rev-parse`
+    # returns nothing), which the second guard measures.
+    for s in k.scopes():
+        for raw_root in (s.get("roots") or []) + (s.get("read_roots") or []):
+            root = Path(raw_root).expanduser()
+            if not root.is_dir():
+                continue
+            found = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=str(root),
+                                   capture_output=True, text=True)
+            if found.returncode != 0:
+                continue
+            git_dir = Path(found.stdout.strip())
+            if not git_dir.is_absolute():
+                git_dir = (root / git_dir).resolve()
+            if git_dir.is_dir() and (git_dir / "HEAD").exists():
+                reads.add(git_dir)
+
     for d in drivers.available(k.home).values():
         writes |= {Path(v) for v in d.env.values() if v.startswith("/") and Path(v).is_dir()}
         exe = d.command.split()[0] if d.command.split() else ""

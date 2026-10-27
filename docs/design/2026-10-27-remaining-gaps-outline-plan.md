@@ -12,7 +12,7 @@ related: []
 Status: **proposed outline-plan**. Scope: A only. This record supersedes the 2026-10-25 outline;
 the predecessor stays in this repo as written, because it says what was true when it was written.
 Every number below was re-measured on **2026-10-27T13:30–14:20Z** on the live instance
-(`HOLON_HOME=/home/ishanp/holon`, SQL in `mode=ro`, doctor, lint) and on the consolidated source
+(`HOLON_HOME=<the instance home>`, SQL in `mode=ro`, doctor, lint) and on the consolidated source
 tree (`4160368`, the commit the live launcher resolves). Nothing here is about the other stack.
 
 ---
@@ -50,7 +50,7 @@ diagnoses of that gap were wrong and the reasons they were wrong are the operati
 carry forward.** My first read said "11 smoke errors, one path defect: the probes `cd
 ventures/<dept>` relative to `$HOLON_HOME`". **Wrong.** The `cd ventures/…` form lives in the
 venture source trees' `smoke.yaml` (the imported artifact); the live `$HOLON_HOME/holon.toml`
-carries the same probe with an **absolute** `cd /home/ishanp/organism/organism/ventures/<dept>`,
+carries the same probe with an **absolute** `cd $HOME/organism/organism/ventures/<dept>`,
 and `run_smoke` sets `cwd` from `scope()[…]`'s first root, not the instance home. I ran the live
 command verbatim as the operator user: **EXIT=0**. So the path family does not exist.
 
@@ -79,9 +79,18 @@ agent-user entry at all** — only `user::rwx`, `group::r-x`, `other::r-x`. So t
 
 | family | count | what it actually is |
 |---|---|---|
-| **foundation reach** | 12 | 11 `smoke.critical` across career-pipeline/freelance-agency/architectural-leads (the `genome doctor` contract probes and career-pipeline's `engine_lib.py` FSM probes) + 1 `smoke.critical` career-pipeline clone — all fail because `foundations/platform-infra/**` is in **no** reach: not in any `[scope.dept.*] roots`, not in `[isolation] reads`, and `reach()` grants only scopes, `reads`, `grants`, `distro`, KBs and pooled roots |
+| **foundation reach** | 8 | 5 career-pipeline probes (`cli-reachable`, `drift-clean`, `engine-lib-phase-evidence-job`, `-freelance`, `outreach-veto-suite-passes`, all reading `foundations/platform-infra/scripts/`) + 3 `genome doctor` contract probes (one per department) that execute `organism/swarm/task-grid/bin/genome` — all fail because **two** trees are in **no** reach: `foundations/platform-infra/**` and `swarm/task-grid/**`. Not in any `[scope.dept.*] roots`, not in `[isolation] reads`, not in `grants`, and `reach()` grants only scopes, `reads`, `grants`, `distro`, KBs and pooled roots. Every one of the eight passes as the operator (measured) and fails as the agent user, because `$HOME/organism/organism/` itself is `drwx--x---` |
+| **genuine code/config defects** | 3 career-pipeline | `apply-job-ashby-import` (`FileNotFoundError: resume 'AI_INFRASTRUCTURE_ENGINEER.pdf' not found`), `company-kb-stats-runs` (`ModuleNotFoundError: No module named 'kb_base'`), `digest-forge-tag-live` (`forge not found on PATH or ~/bin`) — **not** reach failures; they fail as the operator too and are stack-B asset problems, out of this plan's A scope |
+| **probe shape** | 1 (masks others) | the `genome doctor` probe reports `Expecting value: line 1 column 1 (char 0)` for every failure mode, which is why the reach gap first presented as an undifferentiated block |
 | **stale register** | 1 | `schedule.nowake` — 7 employees, no wake schedule (unchanged from the predecessor) |
 | **jcode reach** | 2 | `isolation.reach` on `~/.jcode/builds/versions/0.99.1` and its binary — granted for `drivers.available()`, which does not include this build path |
+
+**A count correction, made during execution.** This record's first draft said 12; the graded
+measurement says **8 reach-gap errors**. The over-count came from reading doctor's `smoke.critical`
+lines as eleven distinct defects when several were the same probe re-listed, and from assuming
+career-pipeline's `genome doctor` failure was reach-shaped when its cause was the D1 probe shape
+riding on top of the same reach gap. The defensible number is the one measured by
+`holon smoke --dept <dept>`: **8**.
 
 **The lesson, stated because this record exists to be read by the next one:** the failing shell
 and the diagnostic shell were the *same shell* in my first two reads — I kept reproducing the
@@ -129,8 +138,8 @@ routines is alive. Row B1 below narrows to exactly that, and says what it does n
 
 | # | Gap | Fix (a command, verified against the live registry) | Gate (a command) |
 |---|---|---|---|
-| **A1** | **12 errors**: `foundations/platform-infra/**` is in no reach, so the agent user can traverse to it but not read it — and every `genome doctor` contract probe plus career-pipeline's `engine_lib.py` FSM probes live there | declare the foundation as a **read-only root** the ventures pool, at the one place reach already reads it: `[scope.dept.<dept>] read_roots` (writable roots stay the venture's own), or `[isolation] reads` if it is fleet-wide. **The narrow fix first**: add `read_roots = ["/home/ishanp/organism/organism/foundations/platform-infra"]` to career-pipeline's scope, measure, then decide whether the other two departments need the same or a narrower root | re-run live: `holon smoke run --dept career-pipeline` then `holon doctor` — the 12 `smoke.critical` errors clear, and the gate that misdiagnosed gets a true reading |
-| **A2** | the live `[isolation] reads` names the deprecated overlay; the canonical checkout's ACLs are not applied | `holon isolation plan` (writes `$HOLON_HOME/isolation/setup.sh` durably), review, `sudo sh` it if the agent user is correct, then `holon isolation apply --force`; then flip `reads` to `/home/ishanp/Documents/github/my-projects/holon` | `holon doctor` prints no `isolation.reach` for the source checkout; the reach's declared tree and the launcher's tree are one path |
+| **A1** | **8 errors, now CLOSED**: `foundations/platform-infra/**` and `swarm/task-grid/**` were in no reach, so the agent user could traverse to them but not read them — and every `genome doctor` contract probe plus career-pipeline's `engine_lib.py` FSM probes live there | **DONE 2026-10-27**: the foundation root joined `[isolation] reads` (the only door a plain read-only grant has — `read_roots` is not a config key, see §2d), and the same execution found the second half of the defect: `reach()` never consumed `[scope.dept.*] commands`, so a *declared* command was a grant nobody could run. Both fixed in `holon/execution/isolation.py` with two guards (one RED-verified), plus `isolation apply --force` | measured: `holon smoke --dept career-pipeline` went from **9 FAIL → 4 FAIL**, and all 5 reach-gap probes pass (`cli-reachable`, both `engine-lib-phase-evidence-*`, `outreach-veto-suite-passes`, and the shared `invariants-clean-job` that was also denied) |
+| **A2** | the live `[isolation] reads` named the deprecated overlay; the canonical checkout's ACLs were not applied | **DONE 2026-10-27**: `reads` now names the one source checkout from the consolidation (`holon-personal` dropped), and `holon isolation apply --force` granted the foundation root, the canonical repo, and the three departments' venture trees | `holon doctor` prints no `isolation.reach` for the source checkout; `getfacl` shows `user:<agent>:r-x` on the foundation scripts dir and the canonical repo; the reach's declared tree and the launcher's tree are one path |
 | **A3** | `isolation.reach` on `~/.jcode/builds/versions/0.99.1` — the build path is not in `drivers.available()`, so the reach never grants it while an employee is jcode-bound | either bind no employee to jcode (current state: 0 of 7) and **note the reach gap explicitly** in `holon.toml`, or extend the reach's driver-grant to cover the pinned build dir | `holon doctor` prints no `isolation.reach` lines at all, either by the gap being closed or by it being declared and out of the way |
 | **B1** | 7 active employees, **0 wake schedules**, so no clock wakes an employee to a stage | `holon schedule add --as <emp> --kind wake --cron "*/15 * * * *" --stage <stage>` per department, highest-risk last. **This row does not claim** a wake schedule makes bodies dispatch — the gateway's clock already runs routines (see §2c) | a `ready` stage is claimed inside one cron window; a `runs` row with a user-facing stage appears |
 | **B2** | 34 ready stages: 26 ventures-import approves, 6 research, 1 retro, 1 verify | the 26 are the Chair's per-job approval (`holon task approve`); the 6 research + retro + verify are legacy — one `holon dispatch --as <id> --task <stage>` each, or `holon task cancel <id> --note "…"` | `ready` counts drop by disposition, not by timeout |

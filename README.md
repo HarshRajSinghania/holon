@@ -148,7 +148,10 @@ Docs: [INTENT](docs/INTENT.md) · [BYLAWS](docs/BYLAWS.md) (departments, roles, 
 the kernel, the instance and the agents fit together) · [COMMANDS](docs/COMMANDS.md) (every
 command, generated from the registry) · [the skills library](holon/skills) ·
 [adapter READMEs](adapters/), which record what each real harness does ·
-[STATUS](docs/STATUS.md) (the live index: where Holon sits, standing decisions, what is next).
+[STATUS](docs/STATUS.md) (the live index: where Holon sits, standing decisions, what is next) ·
+[the design corpus](docs/design/README.md) (dated records and how to read them) ·
+[the current outline-plan](docs/plans/2026-10-27-gap-closure-and-architecture-library.md) (what
+is proposed next).
 
 ## Contributing
 

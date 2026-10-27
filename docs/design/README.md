@@ -35,12 +35,23 @@ a `deprecated: true` line.
 - **`docs/design/`** — dated records: proposals, audits, verification passes, registers. History
   is append-only; a record's content is never rewritten after the fact — corrections travel as
   status-line notes and successor records.
+- **`docs/plans/`** — outline-plans: the ordered gap lists a proposed plan and a proposed outline
+  both live here, because an outline is a plan for work and a design record is a record of a
+  decision. Today's two:
+  [`plans/2026-10-27-gap-closure-and-architecture-library.md`](../plans/2026-10-27-gap-closure-and-architecture-library.md)
+  (the S1–S8 integration gaps and the documentation library) and, in `docs/design/`, this plan's
+  own reach-and-staffing successor
+  [`2026-10-27-remaining-gaps-outline-plan.md`](2026-10-27-remaining-gaps-outline-plan.md).
+  Every page in this tree is linked from this README or from a record that names it
+  (2026-10-27: this line was added because an unlinked `plans/` page arrived with the corpus and
+  the doc-graph gate caught it — a page nobody links is a page nobody reads).
 - **`docs/STATUS.md`** — the live index (deployments, standing decisions, what is next).
 - **`PERSONAL.md`** — the overlay's runbooks (sync, publish gate).
-- **The universal repo** carries no design records — only law and reference docs
-  (`AGENTS.md`, `docs/INTENT.md`, `docs/GENOME.md`, `docs/CONTRACT.md`), which are *living* by
-  nature and carry no status. If a record's universal lesson is enforced somewhere, it is
-  enforced there.
+- **This repo carries the corpus since 2026-10-27** (the two-repo split was folded in: design
+  records, registers and the live index now live here, and private facts moved to
+  `$HOLON_HOME/config/operator-context.md`). The law and reference docs — `AGENTS.md`,
+  `docs/INTENT.md`, `docs/GENOME.md`, `docs/CONTRACT.md` — are *living* by nature and carry no
+  status; if a record's universal lesson is enforced somewhere, it is enforced there.
 
 ## The reading path (2026-10-20)
 

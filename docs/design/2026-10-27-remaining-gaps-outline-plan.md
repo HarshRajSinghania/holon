@@ -21,30 +21,32 @@ tree (`4160368`, the commit the live launcher resolves). Nothing here is about t
 
 | | the 2026-10-25 outline | 2026-10-27T13:3xZ re-measured | delta |
 |---|---|---|---|
-| doctor | 1 error, 2 warnings | **14 errors, 5 warnings** — see §2a; **12 of the 14 are one reach gap** | **13 errors, and almost all of them are one defect the boundary's landing exposed** |
+| doctor | 1 error, 2 warnings | **4 errors, 4 warnings** — after execution (see §3); **all four are stack-B asset defects** measured to fail for the operator too | **14 errors at the session's start, and 10 of them closed by landing the reach grant** |
 | strict lint on the live home | 0/0 on scratch, 2 on live | **0 errors, 1 warning** on the consolidated tree; the live home carries the 2026-10-25 record's **F1/E2** rows (see §2b) | E2/F1 still open, both the Chair's one commands |
-| `[isolation]` | absent | **present**, `agent_user` + runner set, and **11 smoke errors trace to it** | the boundary exists and is *stricter than the venture trees were prepared for* |
+| `[isolation]` | absent | **present**: `agent_user` + runner set, the reach now covers the source checkout, the foundation library and the git history the ventures read | the boundary exists and is *usable* — which it was not at the session's start, when every reach-gap probe was denied |
 | employees | 7 active, all `operant` | **7 active, all `operant`** (read by column name, not position — the predecessor's own §1 correction) | unchanged |
-| schedules | 3 recurring, 1 enabled, **0 wake** | **3 recurring, 1 enabled, 0 wake** | unchanged — the engine's clock is not the systemd one, see §2a |
-| runs, ever | 55, 0 jcode | **55, 0 jcode** | unchanged |
+| schedules | 3 recurring, 1 enabled, **0 wake** | **3 recurring, 1 enabled, 2 wake** (both `on`, both first-fired 23:01:47Z) | **the row this plan closed** — B1 |
+| runs, ever | 55, 0 jcode | **57, 0 jcode** (the two new rows are the first clock-dispatched bodies this instance has ever run) | unchanged in kind, and the first real dispatch |
 | ready stages | 29 (26 approve, 1 research, 2 retro) | **34** (26 approve, 6 research, 1 retro, 1 verify) | +4 research, +1 verify: the ventures import's items aged in |
 | departments | 6 | **6** | unchanged |
 | source repos | 2 (public + private overlay) | **1** (`4c53a96`…`4160368`, the corpus landed) | **the consolidation the 2026-10-26 row rejected, executed and gated** |
-| live `[isolation] reads` | — | names the deprecated overlay; **the canonical checkout's ACLs are not applied** | new seam, see §2c |
+| live `[isolation] reads` | — | named the deprecated overlay and the canonical checkout's ACLs were unapplied | **closed by A1+A2**: the reach now names the one source checkout and carries the foundation library; 0 `isolation.reach` errors |
 
-The headline changes today, and it changes *against* the predecessor's hope: **the engine runs, and
-the health gate fails louder than the plans do.** But the 13 new errors are neither the
-predecessor's rows returning nor a new engine failure — 12 of them are **one reach gap** whose
-landing between the two records is what exposed it. The boundary now exists (`[isolation]` present,
-`agent_user` set), the venture trees carry their ACLs, and the *foundation* trees the smoke probes
-read were never granted. §2a is the record's most important section, because the first two
-diagnoses of that gap were wrong and the reasons they were wrong are the operational lesson.
+The headline changes today, and it changes *against* the predecessor's hope and *for* the
+predecessor's goal: **the engine runs, and the boundary it runs behind is now usable.** 10 of the
+14 errors the session started with closed by landing one reach grant, correctly. The 4 that
+remain are stack-B asset defects that fail for the operator too, which is the definition of
+out-of-scope under law 10 — measured, not assumed. And the first clock-dispatched body this
+instance has ever run failed for a reason that was the Chair's credential, hidden by a redirect
+the plan's own D1 row now repairs. §2a and §2d are the record's most important sections, because
+every diagnosis in them was wrong at least once, and the reasons they were wrong are the
+operational lesson.
 
 ---
 
 ## 2. What this re-measurement found
 
-### 2a. 12 of the 14 errors are one reach gap — and I misdiagnosed it twice first
+### 2a. 8 of the 14 errors are one reach gap — and I misdiagnosed it twice first
 
 **Two corrections to my own first answer, because both were wrong in ways this record must not
 carry forward.** My first read said "11 smoke errors, one path defect: the probes `cd
@@ -132,6 +134,39 @@ So the predecessor's Tier-0 framing "no clock can wake any of them" is **true fo
 and false for the engine**: nothing wakes an *employee* to a *stage*, but the clock that runs
 routines is alive. Row B1 below narrows to exactly that, and says what it does not claim.
 
+### 2d. Three things executing A1 found that the plan's own diagnosis missed
+
+**1. `read_roots` is not a config key.** The obvious fix for a read-only grant — put the path in
+`[scope.dept.<slug>] read_roots` — is **silently ignored**. `scope()`
+(`holon/execution/service.py:2041`) derives `read_roots` from *pooled units only* and never reads
+it from the config, so a line that reads like a grant is no grant at all. Measured: I wrote it,
+ran `holon scope`, and got `read_roots=-` with the file unchanged and every error still red. The
+one door a plain read-only grant has is `[isolation] reads`. A config key that looks like a grant
+and is not is a trap: the failure is invisible, which is worse than a parse error.
+
+**2. `[scope.dept.*] commands` was fencing without a reach.** The fence half consumed the
+department's declared commands (`execution/service.py:1946`) and the reach half consumed only
+pooled units' services and `drivers.available()`. A declared command was therefore an offer with
+no grant behind it — the boundary said no to something the architecture already said yes to.
+Fixed in `reach()`, with a guard that fails when the fix is removed (RED-verified), and a
+red-team sibling that a broken token widens nobody.
+
+**3. git's own ownership gate sits between a granted `.git` and a readable history.** Granting
+the repository that owns a root is not enough: since 2.35.2 git refuses a repo owned by another
+user unless the global config names it in `safe.directory`, and `rev-parse` returns *empty* on
+that refusal — which the pool reads as "not a git repo" and the message names the wrong object
+silently. The reach's deny sweep had put `user:<agent>:---` on the operator's `~/.gitconfig`,
+so the one file carrying the exemption was the one file the agent could not read. Measured
+after the fix: all three departments' contract probes pass.
+
+**And one correction to the wake row's own story.** The wake fired and claimed a stage within
+its window — the clock works. The body then failed, and the graded probe's `2>/dev/null` had
+already thrown away the reason; reproducing the command by hand named it: the Chair's model
+credential is rejected (`invalid_api_key: this token is not valid`), which operant reports as a
+collapsed `IO error: Operation not permitted (os error 1)`. That is why D1 (the probe shape)
+matters more than its row order suggests: the redirect that was supposed to quiet a well-formed
+tool is what hid an auth failure for three diagnostic passes.
+
 ---
 
 ## 3. The plan, in tiers
@@ -140,10 +175,10 @@ routines is alive. Row B1 below narrows to exactly that, and says what it does n
 |---|---|---|---|
 | **A1** | **8 errors, now CLOSED**: `foundations/platform-infra/**` and `swarm/task-grid/**` were in no reach, so the agent user could traverse to them but not read them — and every `genome doctor` contract probe plus career-pipeline's `engine_lib.py` FSM probes live there | **DONE 2026-10-27**: the foundation root joined `[isolation] reads` (the only door a plain read-only grant has — `read_roots` is not a config key, see §2d), and the same execution found the second half of the defect: `reach()` never consumed `[scope.dept.*] commands`, so a *declared* command was a grant nobody could run. Both fixed in `holon/execution/isolation.py` with two guards (one RED-verified), plus `isolation apply --force` | measured: `holon smoke --dept career-pipeline` went from **9 FAIL → 4 FAIL**, and all 5 reach-gap probes pass (`cli-reachable`, both `engine-lib-phase-evidence-*`, `outreach-veto-suite-passes`, and the shared `invariants-clean-job` that was also denied) |
 | **A2** | the live `[isolation] reads` named the deprecated overlay; the canonical checkout's ACLs were not applied | **DONE 2026-10-27**: `reads` now names the one source checkout from the consolidation (`holon-personal` dropped), and `holon isolation apply --force` granted the foundation root, the canonical repo, and the three departments' venture trees | `holon doctor` prints no `isolation.reach` for the source checkout; `getfacl` shows `user:<agent>:r-x` on the foundation scripts dir and the canonical repo; the reach's declared tree and the launcher's tree are one path |
-| **A3** | `isolation.reach` on `~/.jcode/builds/versions/0.99.1` — the build path is not in `drivers.available()`, so the reach never grants it while an employee is jcode-bound | either bind no employee to jcode (current state: 0 of 7) and **note the reach gap explicitly** in `holon.toml`, or extend the reach's driver-grant to cover the pinned build dir | `holon doctor` prints no `isolation.reach` lines at all, either by the gap being closed or by it being declared and out of the way |
-| **B1** | 7 active employees, **0 wake schedules**, so no clock wakes an employee to a stage | `holon schedule add --as <emp> --kind wake --cron "*/15 * * * *" --stage <stage>` per department, highest-risk last. **This row does not claim** a wake schedule makes bodies dispatch — the gateway's clock already runs routines (see §2c) | a `ready` stage is claimed inside one cron window; a `runs` row with a user-facing stage appears |
+| **A3** | `isolation.reach` on `~/.jcode/builds/versions/0.99.1` and its `jcode` binary — the build path is not in `drivers.available()`, so the reach never grants it while an employee is jcode-bound | **DONE 2026-10-27, as a side effect of the same fix**: the A1 command-token arm resolves `commands` through PATH *and* by absolute path, and the reach now carries `~/.jcode/builds/versions/0.99.1` and its `jcode` binary — `getfacl` confirms `r-x` on the launcher and the binary | `holon doctor` prints **no** `isolation.reach` lines at all (measured: 0 after the second apply) |
+| **B1** | 7 active employees, **0 wake schedules**, so no clock woke an employee to a stage | **DONE 2026-10-27**: two wakes, chosen by what each employee's *roles* cover rather than by which department I had just fixed — Uma (`executive`, `researcher` → `research`, 6 ready) and Tess (`tools`, `head`+`steward` → `retro`, 1 ready). `schedule add` carries no staffing gate (the gate is on `enable`, by design), and both land enabled | **measured**: doctor's `schedule.nowake` cleared (5 → 4 errors); at 23:01:47Z both wakes fired, a `ready` stage was **claimed** (event: `ready → claimed`), a `runs` row appeared, and the task returned to `ready` with a real diagnostic. The body then failed — and reproducing it named the cause the wake could not see (below): the Chair's model credential. §6 says so rather than claiming dispatch works |
 | **B2** | 34 ready stages: 26 ventures-import approves, 6 research, 1 retro, 1 verify | the 26 are the Chair's per-job approval (`holon task approve`); the 6 research + retro + verify are legacy — one `holon dispatch --as <id> --task <stage>` each, or `holon task cancel <id> --note "…"` | `ready` counts drop by disposition, not by timeout |
-| **C1** | 0 of 7 employees bound to jcode; 0 jcode runs of 55 | `holon hr set-driver <emp> --driver jcode --reason "…"`, one employee at a time, **after A3 and B1** — a driver whose build dir is unreachable and which has no wake schedule changes nothing | one `runs` row with `driver=jcode` |
+| **C1** | 0 of 7 employees bound to jcode; 0 jcode runs ever | **NOT DONE, and deliberately.** Ruled: B1's execution showed the body layer itself is what fails, and reproducing it named the cause — the Chair's model credential is rejected (`invalid_api_key`), which operant collapses into `IO error: Operation not permitted (os error 1)`. Rebinding an employee to a driver that has **never run on this instance** would swap one unknown for another with a live consequence and fix nothing: every driver consumes the same credential pool. The prerequisites exist (the jcode binary, its launcher and its isolated `JCODE_HOME` are all granted — A3 closed them), so this row is a **one-command step waiting on the credential**, not a blocked build item | one `runs` row with `driver=jcode`, after the credential is valid and **one** employee has run cleanly on the driver already bound |
 | **D1** | the smoke probe's `… --json 2>/dev/null \| python3 -c "assert…"` shape reports a crash as `json.decoder.JSONDecodeError`, not as "the tool did not run" — measured twice (once with `/dev/null`, once without: identical) | replace the tail with an explicit status check: `genome doctor --skip-gate --json > "$tmp"; test $? -eq 0 && python3 -c "…"` — or wrap the pipe in `set -o pipefail`, which is what actually makes a middle-stage crash visible here. **The `/dev/null` is not the cause and removing it does not help** | force a failure (point the probe at a pool with a broken contract) and read a message naming the contract, not `Expecting value: line 1 column 1` |
 | **E1** | E2/F1 from the 2026-10-25 outline remain open on the live home | the Chair's two one-commands: `rm $HOLON_HOME/config/drivers/hermes.toml`; the checksum repair migration ships (`0006`), the heartbeat applies it | live-home `holon lint --strict` reads **0** errors |
 | **F1** | `genome.toml`'s `pointer_ignore` can suppress a real defect indefinitely | **in the genome linter**: a `pointer_ignore` entry whose target now exists, or whose reason comment is older than the path it excuses, is a **lint finding**. Two instances already proven: the archive `INDEX.md` rows and the `STATUS.md` orphan, both hidden for days | a synthetic repo with a stale `pointer_ignore` fails lint; the consolidated tree's `pointer_ignore` list is audited by the same check |

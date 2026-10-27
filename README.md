@@ -147,7 +147,8 @@ Docs: [INTENT](docs/INTENT.md) · [BYLAWS](docs/BYLAWS.md) (departments, roles, 
 · [CONTRACT](docs/CONTRACT.md) (for harness authors) · [ARCHITECTURE](docs/ARCHITECTURE.md) (how
 the kernel, the instance and the agents fit together) · [COMMANDS](docs/COMMANDS.md) (every
 command, generated from the registry) · [the skills library](holon/skills) ·
-[adapter READMEs](adapters/), which record what each real harness does.
+[adapter READMEs](adapters/), which record what each real harness does ·
+[STATUS](docs/STATUS.md) (the live index: where Holon sits, standing decisions, what is next).
 
 ## Contributing
 

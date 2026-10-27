@@ -487,11 +487,6 @@ def reach(k) -> dict:
     # user. The check's message names the wrong object (the repo is right there, readable by the
     # operator), and the real denial is two directories up.
     #
-    # Read-only, and only the git dir itself: objects and refs are what history reads. Not the
-    # worktree, already granted above, and never the config that would name credentials — `git`
-    # needs only objects, refs and HEAD to resolve a commit. A root with no repository on its
-    # parent chain grants nothing (the walk stops at the filesystem root, and `rev-parse`
-    # returns nothing), which the second guard measures.
     # A granted tree's history: `git rev-parse HEAD` reads the repository that OWNS the tree, and
     # on this deployment that repository sits one or more levels ABOVE every venture directory —
     # the ventures live at `$HOME/organism/organism/ventures/<dept>` and the git dir is at
@@ -502,11 +497,22 @@ def reach(k) -> dict:
     # user. The check's message names the wrong object (the repo is right there, readable by the
     # operator), and the real denial is two directories up.
     #
-    # Read-only, and only the git dir itself: objects and refs are what history reads. Not the
-    # worktree, already granted above, and never the config that would name credentials — `git`
-    # needs only objects, refs and HEAD to resolve a commit. A root with no repository on its
-    # parent chain grants nothing (the walk stops at the filesystem root, and `rev-parse`
-    # returns nothing), which the second guard measures.
+    # The second half is git's OWN gate, which the first half does not answer: since 2.35.2 git
+    # refuses a repository owned by a different user ("detected dubious ownership") unless the
+    # global config names it in `safe.directory`. The repo is owned by the operator (uid 1000) and
+    # the agent runs as uid 956, so git returns EMPTY on rev-parse and the pool's history reads as
+    # "not a git repo" — silently, which is why the message names the wrong object. The reach that
+    # grants `.git` must therefore also grant the config that carries the exemption, or granting
+    # the history buys nothing. Measured 2026-10-27: the operator's `~/.gitconfig` had been granted
+    # `user:<agent>:---` by the deny sweep, so the agent could not read the `safe.directory = *`
+    # that would have let it work.
+    #
+    # Read-only, the git dir plus git's global config, and nothing else: objects and refs are what
+    # history reads, the config is what lets a foreign uid read them at all, and neither is a place
+    # to be selective. Credentials are NOT granted — `~/.gitconfig` holds user.name, email and
+    # filter drivers here, and any file that names a secret is a separate decision the operator
+    # makes. A root with no repository on its parent chain grants nothing (the walk stops at the
+    # filesystem root, and `rev-parse` returns nothing), which the second guard measures.
     for s in k.scopes():
         for raw_root in (s.get("roots") or []) + (s.get("read_roots") or []):
             root = Path(raw_root).expanduser()
@@ -521,6 +527,10 @@ def reach(k) -> dict:
                 git_dir = (root / git_dir).resolve()
             if git_dir.is_dir() and (git_dir / "HEAD").exists():
                 reads.add(git_dir)
+                for cfg in (Path("~/.gitconfig").expanduser(),
+                            Path("~/.config/git/config").expanduser()):
+                    if cfg.is_file():
+                        reads.add(cfg)
 
     for d in drivers.available(k.home).values():
         writes |= {Path(v) for v in d.env.values() if v.startswith("/") and Path(v).is_dir()}

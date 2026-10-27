@@ -37,6 +37,7 @@ import contextlib
 import json
 import os
 import pathlib
+from pathlib import Path
 import re
 import secrets
 import shutil
@@ -385,6 +386,39 @@ class Reach(KernelCase):
         self.assertIn(str(repo / ".git"), granted,
                       "the ACL plan does not grant the owning repo: the grant exists in reach() "
                       "and never reaches the filesystem")
+
+    def test_the_gitconfig_the_repo_needs_travels_with_it(self):
+        """The red-team of the git-history fix, caught by running it. Granting `.git` is not
+        enough: since git 2.35.2 a repository owned by another user is refused unless the global
+        config names it in `safe.directory`, and rev-parse returns EMPTY on that refusal — which
+        the pool reads as "not a git repo". Measured 2026-10-27 on the live instance: `.git` was
+        granted and the deny sweep had put `user:<agent>:---` on `~/.gitconfig`, so the exemption
+        the agent needed was the one file it could not read. The fix grants the config with the
+        repo. This guard fails if a future reach grants history without the exemption."""
+        from holon.execution import isolation
+        repo = self.tmp / "repo"
+        (repo / "pool").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-q", "--allow-empty",
+                        "-m", "seed"], check=True,
+                       env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+        cfg = Path("~/.gitconfig").expanduser()
+        cfg_existed = cfg.is_file()
+        self.home.config_file.write_text(self.pipeline + "\n" + self.config +
+                                        "\n[isolation]\nagent_user = \"%s\"\n" % os.getlogin() +
+                                        "\n[scope.dept.pool]\n"
+                                        f"roots = [\"{repo}/pool\"]\n")
+        self.k = Kernel(self.home)
+        reads = {str(p) for p in isolation.reach(self.k)["reads"]}
+        self.k.close()
+        if not cfg_existed:
+            self.skipTest("no ~/.gitconfig on this host: the global-config grant has nothing to "
+                          "measure, and the reach correctly grants no such file")
+        self.assertIn(str(cfg), reads,
+                      "the git dir was granted but the global config that names safe.directory was "
+                      "not: git refuses a foreign-owned repo and rev-parse returns empty, so the "
+                      "pool's history reads as 'not a git repo' for every file it granted")
 
     def test_a_root_with_no_repository_grants_no_history(self):
         """The red-team of the git grant. A directory with no repository on its parent chain must

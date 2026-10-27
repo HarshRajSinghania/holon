@@ -290,6 +290,68 @@ class Reach(KernelCase):
                       "the ACL plan does not grant the harness's directory to the agent user: "
                       "the payload beside the launcher stays unreadable")
 
+    def test_a_departments_declared_command_lands_in_the_read_reach(self):
+        """The 2026-10-27 A1 fix: a department's own fence is a reach. `[scope.dept.<slug>]
+        commands` names the entry points its bodies may invoke, and the fencing half consumed it
+        (`execution/service.py:1946`) while `reach()` consumed only pooled units' services and
+        the drivers — so a declared command was a grant nobody could run. Measured live:
+        career-pipeline's `genome doctor` contract probe executes
+        `organism/swarm/task-grid/bin/genome`, the department declares it, and `getfacl` on that
+        binary showed no agent-user entry after `isolation apply --force` while the venture roots
+        beside it were granted. The probe failed for the agent user only, which is the tell: the
+        fence said yes and the reach said nothing."""
+        from holon.execution import isolation
+        (self.tmp / "dept").mkdir(parents=True)
+        (self.tmp / "tools" / "bin").mkdir(parents=True)
+        tool = self.tmp / "tools" / "bin" / "pooltool"
+        tool.write_text("#!/bin/sh\necho '{}'\n")
+        tool.chmod(0o755)
+        self.home.config_file.write_text(self.pipeline + "\n" + self.config +
+                                        "\n[isolation]\nagent_user = \"%s\"\n" % os.getlogin() +
+                                        "\n[scope.dept.career]\n"
+                                        f"roots = [\"{self.tmp}/dept\"]\n"
+                                        f"commands = [\"{tool} --doctor\"]\n")
+        self.k = Kernel(self.home)
+        reads = {str(p) for p in isolation.reach(self.k)["reads"]}
+        plan = isolation.setup_plan(self.k)
+        self.k.close()
+        self.assertIn(str(self.tmp / "tools" / "bin"), reads,
+                      "a department's declared command binary directory is not in the reach: the "
+                      "fence offers the command and isolation denies it")
+        self.assertIn(str(tool), reads,
+                      "the declared command itself is not granted: a launcher's siblings need it")
+        granted = {tuple(c)[-1] for c in plan["acl"] if c[0] == "setfacl"}
+        self.assertIn(str(tool), granted,
+                      "the ACL plan does not grant the declared command: the fence is a promise "
+                      "the boundary does not keep")
+
+    def test_a_command_token_that_resolves_nowhere_widens_nobody(self):
+        """The red-team of the fix above. A `commands` entry is a directory listing's worth of
+        reach the moment it resolves to a real file, so a name that resolves to nothing must
+        grant nothing — not the directory a sibling lives in, not the run directory, not the
+        instance root. A broken declaration must stay a broken declaration and not become a
+        silent widening. The comparison is against the same deployment WITHOUT the bad token:
+        `/usr/bin` is in the baseline reach from `drivers.available()` (the interpreter), and a
+        test that asserts otherwise is asserting about something this fix does not touch."""
+        from holon.execution import isolation
+        (self.tmp / "dept").mkdir(parents=True)
+        (self.tmp / "tools" / "bin").mkdir(parents=True)
+        base = self.pipeline + "\n" + self.config + \
+               "\n[isolation]\nagent_user = \"%s\"\n" % os.getlogin() + \
+               "\n[scope.dept.career]\n" + f"roots = [\"{self.tmp}/dept\"]\n"
+        self.home.config_file.write_text(base)
+        self.k = Kernel(self.home)
+        without = {str(p) for p in isolation.reach(self.k)["reads"]}
+        self.k.close()
+        self.home.config_file.write_text(base +
+                                        "commands = [\"no-such-tool-anywhere-xyzzy --x\"]\n")
+        self.k = Kernel(self.home)
+        with_bad = {str(p) for p in isolation.reach(self.k)["reads"]}
+        self.k.close()
+        self.assertEqual(without, with_bad,
+                         "an unresolvable command token changed the reach: a name that resolves "
+                         f"to nothing must grant nothing. Added: {sorted(with_bad - without)}")
+
     def test_a_pooled_units_service_binary_lands_in_the_read_reach(self):
         """Fix 3 of the capability-layer plan. The fence half already existed: a pooled unit's
         service entry-point token joins the department's `commands` (`execution/service.py:1946`,

@@ -439,6 +439,44 @@ def reach(k) -> dict:
                     bin_path = Path(found).resolve()
                     reads.add(bin_path.parent)
                     reads.add(bin_path)
+    # A department's own fence: `[scope.dept.<slug>] commands` names the entry points its bodies
+    # may invoke, and every one of them is executable code sitting outside the department's
+    # roots. The fence half consumed it (`execution/service.py:1946`) and the reach half did not,
+    # so a declared command was a grant nobody could run. Measured 2026-10-27 on the live
+    # instance: career-pipeline's `genome doctor` contract probe executes
+    # `organism/swarm/task-grid/bin/genome`, the department declares it in `commands`, and
+    # `reach()` returned it nowhere — `getfacl` on the binary showed no agent-user entry after
+    # `isolation apply --force` while the venture roots beside it were granted, and the probe
+    # failed for the agent user only. The grant is a read for the same reason a harness binary
+    # is (`:367-374`): executable code the agent runs, not a place to be selective. An absolute
+    # path is granted as its own file and its directory (a launcher execs siblings); a bare
+    # token is resolved through PATH first and skipped when it does not resolve, exactly as the
+    # unit-services arm above does — a name that resolves to nothing must not widen the reach.
+    # A department's own fence: `[scope.dept.<slug>] commands` names the entry points its bodies
+    # may invoke, and every one of them is executable code sitting outside the department's
+    # roots. The fence half consumed it (`execution/service.py:1946`) and the reach half did not,
+    # so a declared command was a grant nobody could run. Measured 2026-10-27 on the live
+    # instance: career-pipeline's `genome doctor` contract probe executes
+    # `organism/swarm/task-grid/bin/genome`, the department declares it in `commands`, and
+    # `reach()` returned it nowhere — `getfacl` on the binary showed no agent-user entry after
+    # `isolation apply --force` while the venture roots beside it were granted, and the probe
+    # failed for the agent user only. The grant is a read for the same reason a harness binary
+    # is (`:367-374`): executable code the agent runs, not a place to be selective. An absolute
+    # path is granted as its own file and its directory (a launcher execs siblings); a bare
+    # token is resolved through PATH first and skipped when it does not resolve, exactly as the
+    # unit-services arm above does — a name that resolves to nothing must not widen the reach.
+    for s in k.scopes():
+        for raw_token in s.get("commands") or []:
+            token = (raw_token or "").strip().split()
+            if not token:
+                continue
+            found = token[0] if token[0].startswith("/") else shutil.which(token[0])
+            if not found:
+                continue
+            bin_path = Path(found).resolve()
+            if bin_path.exists():
+                reads.add(bin_path.parent)
+                reads.add(bin_path)
     for d in drivers.available(k.home).values():
         writes |= {Path(v) for v in d.env.values() if v.startswith("/") and Path(v).is_dir()}
         exe = d.command.split()[0] if d.command.split() else ""

@@ -180,6 +180,60 @@ class GenomePin(unittest.TestCase):
         self.assertEqual(digest, kb.GENOME_SHA256,
                          f"the vendored CLI's checksum moved: update GENOME_SHA256 (now {digest})")
 
+    def test_a_stale_pointer_ignore_is_finding_w00a(self):
+        """F1 (2026-10-27 gaps outline-plan): a `pointer_ignore` suppression whose path NOW
+        EXISTS suppresses nothing but still hides the check it once excused.
+
+        Measured during the two-repo consolidation: a pointer_ignore list carried names the
+        repo itself also carried, and the failures it was excusing -- archive files with no
+        INDEX rows, an orphan STATUS page -- were both invisible for two days and both real
+        defects. The guard reads the rule's own source the way `DuplicateQuestionRule` does,
+        so it cannot silently pass if the rule moves or is dropped.
+        """
+        import re
+        src = kb.GENOME.read_text()
+        lo = src.index("A suppression with no expiry")
+        hi = src.index("# agent contract pointers", lo)
+        block = src[lo:hi]
+        # the rule exists in lint_core, where it runs for every repo regardless of modules
+        self.assertIn("W00A", block)
+        self.assertIn("W00B", block)
+        # bare names and instance paths are exempt: nothing on disk can be checked against them
+        self.assertIn('if "/" not in rel', block)
+        self.assertIn('token.startswith(("$", "~"))', block)
+        # and the suppression list is consulted from lint_core, not only lint_ops: the
+        # consolidation's own repo runs [agents, core, records], so a rule living only in
+        # lint_ops would never fire on it
+        core_lo = src.index("def lint_core")
+        core_hi = src.index("def ", core_lo + 10)
+        self.assertLess(lo, core_hi, "the stale-suppression rule must live in lint_core, which "
+                                     "runs for every repo; a rule in lint_ops only runs for "
+                                     "repos that carry the ops module")
+
+    def test_w00a_fires_and_w00b_fires_and_a_bare_name_does_not(self):
+        """The rule discriminates: W00A for a stale suppression, W00B for a half-alive one,
+        silence for a bare name. Proven on a synthetic tree: docs/PRESENT.md exists (W00A),
+        docs/absent.md's directory exists but the file does not (W00B), BRIEF.md is bare."""
+        import subprocess
+        import sys
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "docs" / "PRESENT.md").write_text("# present\n")
+            (root / "genome.toml").write_text(
+                '[genome]\nmodules = ["core"]\n\n[core]\n'
+                'pointer_ignore = "docs/PRESENT.md docs/absent.md BRIEF.md"\n')
+            out = subprocess.run(
+                [sys.executable, str(kb.GENOME), "lint"],
+                cwd=root, capture_output=True, text=True)
+            self.assertIn("W00A", out.stdout)
+            self.assertIn("docs/PRESENT.md", out.stdout)
+            self.assertIn("W00B", out.stdout)
+            self.assertIn("docs/absent.md", out.stdout)
+            self.assertNotIn("`BRIEF.md`", out.stdout,
+                             "a bare name has no directory to check against: it must not fire")
+
     def test_the_plan_the_code_cites_exists_and_names_the_phases(self):
         """`holon/capabilities/kb.py` cites `docs/plans/2026-10-19-holon-knowledge-layer.md` as
         its plan. The citation pointed at a file that did not exist: the module's own docstring

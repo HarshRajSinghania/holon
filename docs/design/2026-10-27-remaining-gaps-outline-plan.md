@@ -134,7 +134,7 @@ So the predecessor's Tier-0 framing "no clock can wake any of them" is **true fo
 and false for the engine**: nothing wakes an *employee* to a *stage*, but the clock that runs
 routines is alive. Row B1 below narrows to exactly that, and says what it does not claim.
 
-### 2d. Three things executing A1 found that the plan's own diagnosis missed
+### 2d. Four things executing the plan found that its own diagnosis missed
 
 **1. `read_roots` is not a config key.** The obvious fix for a read-only grant — put the path in
 `[scope.dept.<slug>] read_roots` — is **silently ignored**. `scope()`
@@ -167,6 +167,20 @@ collapsed `IO error: Operation not permitted (os error 1)`. That is why D1 (the 
 matters more than its row order suggests: the redirect that was supposed to quiet a well-formed
 tool is what hid an auth failure for three diagnostic passes.
 
+**4. The 19-test "kb baseline" was a stale checksum pin, not the peer's in-flight work.** For
+days this record carried the claim that 19 `test_kb.py` failures (and 2 integrity failures) came
+from the peer's uncommitted `holon/vendor/genome.py` — an `outline` command family whose bytes
+would not match the pinned build until the peer landed it. Then the peer landed it (`6c3542c`,
+"genome 2026.10.27-13") and the failures **stayed**: the commit vendored the new build but did
+not re-pin `GENOME_SHA256`, and `kb.py`'s `_genome()` refuses any vendored copy whose checksum
+does not match the pin — so every kb test that shells out to the genome CLI failed on one stale
+constant. My own F1 work then re-moved the same bytes and inherited the same refusal. Re-pinning
+to the working tree's digest (with the pin comment naming **both** local fixes the pinned build
+now carries: the restored W006 date-strip that `2026.10.27-13` had dropped, and F1's W00A/W00B)
+took `test_kb.py` from **19 failed → 27 passed**, zero other changes. The lesson is the pin's own
+discipline, now written on it: **a vendoring commit that does not re-pin is not landed** — the
+suite reads it as a broken build, and the failure is attributed to whoever moves the file next.
+
 ---
 
 ## 3. The plan, in tiers
@@ -181,7 +195,7 @@ tool is what hid an auth failure for three diagnostic passes.
 | **C1** | 0 of 7 employees bound to jcode; 0 jcode runs ever | **NOT DONE, and deliberately.** Ruled: B1's execution showed the body layer itself is what fails, and reproducing it named the cause — the Chair's model credential is rejected (`invalid_api_key`), which operant collapses into `IO error: Operation not permitted (os error 1)`. Rebinding an employee to a driver that has **never run on this instance** would swap one unknown for another with a live consequence and fix nothing: every driver consumes the same credential pool. The prerequisites exist (the jcode binary, its launcher and its isolated `JCODE_HOME` are all granted — A3 closed them), so this row is a **one-command step waiting on the credential**, not a blocked build item | one `runs` row with `driver=jcode`, after the credential is valid and **one** employee has run cleanly on the driver already bound |
 | **D1** | the smoke probe's `… --json 2>/dev/null \| python3 -c "assert…"` shape reports a crash as `json.decoder.JSONDecodeError`, not as "the tool did not run" — measured twice (once with `/dev/null`, once without: identical) | replace the tail with an explicit status check: `genome doctor --skip-gate --json > "$tmp"; test $? -eq 0 && python3 -c "…"` — or wrap the pipe in `set -o pipefail`, which is what actually makes a middle-stage crash visible here. **The `/dev/null` is not the cause and removing it does not help** | force a failure (point the probe at a pool with a broken contract) and read a message naming the contract, not `Expecting value: line 1 column 1` |
 | **E1** | E2/F1 from the 2026-10-25 outline remain open on the live home | the Chair's two one-commands: `rm $HOLON_HOME/config/drivers/hermes.toml`; the checksum repair migration ships (`0006`), the heartbeat applies it | live-home `holon lint --strict` reads **0** errors |
-| **F1** | `genome.toml`'s `pointer_ignore` can suppress a real defect indefinitely | **in the genome linter**: a `pointer_ignore` entry whose target now exists, or whose reason comment is older than the path it excuses, is a **lint finding**. Two instances already proven: the archive `INDEX.md` rows and the `STATUS.md` orphan, both hidden for days | a synthetic repo with a stale `pointer_ignore` fails lint; the consolidated tree's `pointer_ignore` list is audited by the same check |
+| **F1** | `genome.toml`'s `pointer_ignore` can suppress a real defect indefinitely | **DONE 2026-10-27**: the genome linter now audits its own suppressions. In `lint_core` — not `lint_ops`, a placement that mattered: this repo runs `[agents, core, records]`, so a rule living only in the ops module would never fire here — a `pointer_ignore` entry whose path NOW EXISTS is **W00A** (it suppresses nothing but still hides the check it once excused), and an entry whose *directory* exists but file does not is **W00B** (its reason may have been "not in this repo" — confirm). Bare names (`BRIEF.md`) and instance paths (`$`, `~`) are exempt: nothing on disk can be checked against them | the synthetic proof: a repo with `pointer_ignore = "docs/PRESENT.md docs/absent.md BRIEF.md"` fires W00A on the first, W00B on the second, and nothing on the bare name — while this repo's own list (`BRIEF.md holon.toml INDEX.md`) stays clean. Two guards in `tests/test_kb.py::GenomePin` read the rule's own source and run the synthetic tree, so neither can silently pass if the rule moves. The re-pin this required (`GENOME_SHA256`, kb.py:29) names both local fixes the pinned build now carries |
 
 ## 4. The order, and why
 

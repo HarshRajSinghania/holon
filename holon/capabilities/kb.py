@@ -26,7 +26,17 @@ GENOME = Path(__file__).resolve().parent.parent / "vendor" / "genome.py"
 # The vendored CLI and the distribution's own scripts/genome are the SAME build: a KB's verbs and the
 # repo's own lint must agree, or a KB can pass `holon kb run ... lint` and fail `scripts/genome lint`.
 # The pin is the guard for that (a test asserts the two files are byte-identical).
-GENOME_SHA256 = "1136ba8c2953e1a5058cfafca240fc4157b848c239cf0fb16c6c3991f917f601"  # genome 2026.10.22-17 + one local fix: W006 compared two plans' H1 headings and the date tokens it tokenized counted as words, so two plans about different subjects scored exactly 0.50 at the threshold (see the commit's own message). Dates are stripped before tokenizing. guard: `DuplicateQuestionRule` in tests/test_kb.py
+# genome 2026.10.27-13 (the outline family, vendored in 6c3542c) + two local fixes:
+#   1. W006 (restored): the 2026.10.27-13 build dropped the date-strip -- `2026` tokenized as a
+#      word again, so two plans about different subjects scored exactly 0.50 at the threshold.
+#      Dates are stripped before tokenizing. guard: `DuplicateQuestionRule` in tests/test_kb.py.
+#   2. F1 (new): a `pointer_ignore` suppression whose path NOW EXISTS is stale -- it suppresses
+#      nothing but still hides the check it once excused (W00A), and a suppression whose
+#      directory exists but file does not is W00B. Measured in the two-repo consolidation:
+#      stale suppressions hid archive files with no INDEX rows and an orphan STATUS page for
+#      two days. guard: `GenomePin.test_a_stale_pointer_ignore_is_finding_w00a` and
+#      `test_w00a_fires_and_w00b_fires_and_a_bare_name_does_not` in tests/test_kb.py.
+GENOME_SHA256 = "03966ec5663667f170b425caaaf95fa59d909b9115b362b20cd44a7002fab6e7"
 READ_VERBS = ("find", "view", "ask", "wake", "show", "lint")
 WRITE_VERBS = ("new", "move", "set", "link")
 JSON_VERBS = ("find", "ask", "show", "new")  # the verbs with a --json form

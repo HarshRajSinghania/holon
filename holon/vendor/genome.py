@@ -1290,6 +1290,29 @@ def lint_core(cfg: Cfg) -> list[str]:
                 f"`genome migrate` writes `**/{p}`" for s, k, p in membership_problems(cfg.sec)]
     names = tracked(cfg)
     ign = cfg.ignore()
+    # A suppression with no expiry. `pointer_ignore` removes a token from the pointer checks
+    # below before they ever look at it (`pointers()` drops any token in `ignore`), which is
+    # what it is for: a doc naming a path this repo does not carry — a per-run brief in the
+    # instance home, an operator-only config, a file cited by bare name in its own row. But a
+    # suppression outlives its reason, and nothing ever said so. Measured 2026-10-27 during the
+    # two-repo consolidation: a pointer_ignore list carried names the repo itself also carried,
+    # and the failures it was excusing — archive files with no INDEX rows, an orphan STATUS
+    # page — were both invisible for two days and both real defects. A suppression is a dated
+    # decision, so audit it like one: an entry whose path NOW EXISTS is stale (it suppresses
+    # nothing but still hides the check it once excused). A warning, not an error — it says
+    # "look at this", which is the level a suppression audit deserves.
+    for token in sorted(ign):
+        rel = token.lstrip("./")
+        if "/" not in rel:
+            continue  # a bare name (BRIEF.md, INDEX.md): nothing on disk can be checked against it
+        if (cfg.root / rel).exists():
+            out.append(f"W00A core.pointer_ignore names `{token}`, which exists in this repo: "
+                       f"a suppression that suppresses nothing hides the check it excuses")
+        elif token.startswith(("$", "~")):
+            pass  # an instance path the distribution does not carry, by design
+        elif (cfg.root / rel).parent.is_dir():
+            out.append(f"W00B core.pointer_ignore names `{token}`, whose directory exists here "
+                       f"but whose file does not: the reason may have been 'not in this repo'")
     # agent contract pointers
     if cfg.has("agents"):
         text = read(cfg.path("agents"))
@@ -1423,7 +1446,14 @@ def lint_core(cfg: Cfg) -> list[str]:
             if "kb: tombstone" in body:
                 continue
             h = next((ln for ln in body.splitlines() if ln.startswith("#")), "")
-            titles.append((f.name, set(re.findall(r"[a-z0-9]{4,}", h.lower()))))
+            # The dates are not part of the question. Two plans named `2026-10-24` and
+            # `2026-10-17` shared `2026` and the two words every gap record carries, scored
+            # exactly 0.50 against the threshold below, and the rule reported a duplication
+            # between a knowledge-base plan and a whole-distribution one -- a false positive
+            # on the document pair an operator is most likely to open. A year and a day
+            # tokenize into the question's vocabulary; they carry no question.
+            bare = re.sub(r"\b\d[\d-]*\d?\b", " ", h.lower())
+            titles.append((f.name, set(re.findall(r"[a-z]{4,}", bare))))
         for i in range(len(titles)):
             for j in range(i + 1, len(titles)):
                 a, b = titles[i][1], titles[j][1]
@@ -1631,7 +1661,6 @@ def lint_ops(cfg: Cfg) -> list[str]:
     out = []
     files = tracked(cfg)
     names = files
-    ign = cfg.ignore()
     # ownership map: every owner-location doc is listed
     if cfg.has("ownership_map"):
         mp = read(cfg.path("ownership_map"))

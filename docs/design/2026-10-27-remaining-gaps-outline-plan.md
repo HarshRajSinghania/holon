@@ -134,7 +134,7 @@ So the predecessor's Tier-0 framing "no clock can wake any of them" is **true fo
 and false for the engine**: nothing wakes an *employee* to a *stage*, but the clock that runs
 routines is alive. Row B1 below narrows to exactly that, and says what it does not claim.
 
-### 2d. Five things executing the plan found that its own diagnosis missed
+### 2d. Things executing the plan found that its own diagnosis missed
 
 **1. `read_roots` is not a config key.** The obvious fix for a read-only grant — put the path in
 `[scope.dept.<slug>] read_roots` — is **silently ignored**. `scope()`
@@ -206,6 +206,56 @@ runs that really ran. Deleting them re-links the tail arithmetically (1815's `pr
 Chair dispositions the fork — the repair is a disposition, not a rewrite, and the disposition
 record of that call belongs to whoever makes it.
 
+**6. Running the fixed lint on the four live genome repos fired W00A on every one.** The rule
+landed clean on its synthetic fixture and on this repo, and then met real configs. All four
+carry `pointer_ignore` entries with reasons *inline* — `"_org.yaml",  # every pool's structure
+contract (arch-owned)` — and globs — `cron-jobs/*.md`, `data/**`. Two things followed, and both
+were my own rule's fault. (a) **The TOML parser strips comments**, so every entry parsed as a
+bare token and the audit read each one as unexplained: reasoned suppressions were reported as
+stale ones. Fix: `Cfg` now remembers its source file (`cfg.cfg_file`) and the audit reads the
+**raw text**, exempting any entry with an inline reason. (b) **Globs were path-checked as
+literal paths**, so `cron-jobs/*.md` — which suppresses fifteen real job files here — was
+reported as "whose directory exists here but whose file does not". Fix: a token with `*?[` is
+glob-matched. A rule that cries wolf teaches operators to disregard the pack, which is worse
+than no rule: this is the fourth false-positive class in the ledger. Measured after both fixes:
+all four live repos emit **zero** W00A/W00B (career-pipeline's remaining W007 archive-INDEX
+warning is pre-existing — the committed build reports the same one alongside its two false
+positives).
+
+**And the way the fix was built taught its own lesson.** Three separate defects surfaced while
+fixing it, each caught only by running against live data rather than by reading the code:
+- **An infinite loop.** The token walk paired `re.search` positions from a *slice* against the
+  whole body, so the walk went backwards and cycled between two offsets forever — the second
+  live-repo run hung at 60s with no output while the synthetic fixtures (short lists, no
+  apostrophes) passed. The trigger was an apostrophe inside a *reason*: `# every pool's
+  structure contract` made an `'...'` alternative pair two unrelated apostrophes and emit a
+  garbage token. Fixed with absolute offsets and quote-anchored tokens.
+- **The string form reached into another section.** `re.search(r"\[(.*?)\]")` for a list's body
+  happily matched a bracket in a *trailing comment* on the single-string form (this repo's
+  `pointer_ignore = "BRIEF.md holon.toml INDEX.md"   # ... [core] ...`), capturing an unrelated
+  array 225 characters away. Fixed by deciding the value's form from what immediately follows
+  the `=`.
+- **A guard fixture that did not match the shape the rule lives in.** The guard wrote the reason
+  after the closing bracket (`... "cron-jobs/*.md"]  # arch cron-sync owned`), which the reason
+  reader cannot attribute to any one entry — and the *right* behaviour for it is a list-level
+  note that exempts nothing. The live repos put each comment immediately after its own entry.
+  The guard now writes the live shape.
+
+**7. The two-line addition broke `genome init` for a blueprint, and the A/B that found it was
+the only honest diagnosis.** `Cfg.__init__` snapshots `data["kinds"]`/`data["views"]` at
+construction. To remember the source file I built `Cfg` *before* the `genome/kinds/*.toml`
+deep-merge and then mutated `data` afterwards — so a blueprint's kinds never reached the object
+and `genome init --blueprint venture-pipeline` created 16 files instead of 19, omitting
+`pipeline/outcomes.jsonl` and `docs/PIPELINE.md` and leaving an AGENTS.md pointing at records
+that do not exist. Eleven `KnowledgeBases` tests failed on it. Two of my own diagnoses were
+wrong before the code was read: first that the *seeded repo* was misconfigured (the config and
+AGENTS.md are byte-identical between the two builds — `diff` exit 0), then that `bp_apply` had
+changed (`git diff` of that function: empty). The isolated A/B — the same command with the
+committed `genome.py` and with the working tree's, nothing else varying — was what localised it,
+and the fix is the original ordering: build `Cfg` after the merge, then attach `cfg_file`. Full
+suite back to **841 passed, 10 skipped**, and `init` on the blueprint creates 19 files and
+lints clean.
+
 ---
 
 ## 3. The plan, in tiers
@@ -220,7 +270,7 @@ record of that call belongs to whoever makes it.
 | **C1** | 0 of 7 employees bound to jcode; 0 jcode runs ever | **NOT DONE, and deliberately — blocker re-measured live 2026-10-28T07:15Z.** The wake schedule fired on its own clock (no dispatch from me) and produced a fresh run: `run_01M60NT4B7…`, driver **operant**, status **failed**, `IO error: Operation not permitted (os error 1)` — the same collapsed form of the rejected model credential, measured from the instance's own wake rather than from B1's 23:31Z evidence. Ruled: rebinding an employee to a driver that has **never run on this instance** while every driver consumes the same dead credential pool would swap one unknown for another with a live consequence and fix nothing. The prerequisites exist (the jcode binary, its launcher and its isolated `JCODE_HOME` are all granted — A3 closed them), so this row is a **one-command step waiting on a credential that is still rejected as of 2026-10-28T07:15Z** | one `runs` row with `driver=jcode`, after the credential is valid and **one** employee has run cleanly on the driver already bound |
 | **D1** | the smoke probe's `… --json 2>/dev/null \| python3 -c "assert…"` shape reports a crash as `json.decoder.JSONDecodeError`, not as "the tool did not run" — measured twice (once with `/dev/null`, once without: identical) | replace the tail with an explicit status check: `genome doctor --skip-gate --json > "$tmp"; test $? -eq 0 && python3 -c "…"` — or wrap the pipe in `set -o pipefail`, which is what actually makes a middle-stage crash visible here. **The `/dev/null` is not the cause and removing it does not help** | force a failure (point the probe at a pool with a broken contract) and read a message naming the contract, not `Expecting value: line 1 column 1` |
 | **E1** | E2/F1 from the 2026-10-25 outline remain open on the live home | **DONE, verified 2026-10-28 — and not by anything this session did.** The gate command is the acceptance: live-home `holon lint --strict` reads **0 errors, 0 warnings** (measured 2026-10-28T07:10Z). Both underlying items are already in place: `config/drivers/hermes.toml` no longer exists (renamed `hermes.toml.retired` — the retirement took the `rm`'s effect without deleting history), and migration `0006_checksum_repair.py` is applied (`schema_migrations` confirms, checksum non-null). The 2026-10-25 outline's two one-commands were the Chair's; whoever executed them did so before this row was re-measured, and the plan's own rule — measure, don't assume — applies to closures too: the row was open in the record after it had closed on the instance | live-home `holon lint --strict` reads **0** errors — **measured: 0 errors, 0 warnings** |
-| **F1** | `genome.toml`'s `pointer_ignore` can suppress a real defect indefinitely | **DONE 2026-10-27**: the genome linter now audits its own suppressions. In `lint_core` — not `lint_ops`, a placement that mattered: this repo runs `[agents, core, records]`, so a rule living only in the ops module would never fire here — a `pointer_ignore` entry whose path NOW EXISTS is **W00A** (it suppresses nothing but still hides the check it once excused), and an entry whose *directory* exists but file does not is **W00B** (its reason may have been "not in this repo" — confirm). Bare names (`BRIEF.md`) and instance paths (`$`, `~`) are exempt: nothing on disk can be checked against them | the synthetic proof: a repo with `pointer_ignore = "docs/PRESENT.md docs/absent.md BRIEF.md"` fires W00A on the first, W00B on the second, and nothing on the bare name — while this repo's own list (`BRIEF.md holon.toml INDEX.md`) stays clean. Two guards in `tests/test_kb.py::GenomePin` read the rule's own source and run the synthetic tree, so neither can silently pass if the rule moves. The re-pin this required (`GENOME_SHA256`, kb.py:29) names both local fixes the pinned build now carries |
+| **F1** | `genome.toml`'s `pointer_ignore` can suppress a real defect indefinitely | **DONE 2026-10-27, hardened 2026-10-28 — and the hardening is the honest half of this row.** The genome linter now audits its own suppressions. In `lint_core` — not `lint_ops`, a placement that mattered: this repo runs `[agents, core, records]`, so a rule living only in the ops module would never fire here — a `pointer_ignore` entry whose path NOW EXISTS is **W00A** (it suppresses nothing but still hides the check it once excused), and an entry whose *directory* exists but file does not is **W00B** (its reason may have been "not in this repo" — confirm). Bare names (`BRIEF.md`) and instance paths (`$`, `~`) are exempt: nothing on disk can be checked against them. **Then the rule went live and fired W00A on all four real genome repos**: they carry their reasons *inline* (`"_org.yaml",  # every pool's structure contract`), the TOML parser strips comments, and globs (`cron-jobs/*.md`) were path-checked as literal paths. So the audit now reads the **raw config text** (`cfg.cfg_file`, §2d.6) and exempts any entry with a readable reason, and matches globs as globs — which is what the rule should have done from the first: a suppression a reviewer can read is a dated decision, and a rule that fires on reasoned entries teaches operators to disregard the pack | the synthetic proof still holds: a repo with `pointer_ignore = "docs/PRESENT.md docs/absent.md BRIEF.md"` fires W00A on the first, W00B on the second, and nothing on the bare name — while all four live repos (`career-pipeline`, `freelance-agency`, `architectural-leads`, `foundations/platform-infra`) emit **zero** W00A/W00B, each linting in under a second. Two guards in `tests/test_kb.py::GenomePin` read the rule's own source and run the synthetic tree, so neither can silently pass if the rule moves. The second re-pin (`GENOME_SHA256`, kb.py:39) names the raw-text and glob fixes now behind it; a third defect the hardening introduced — `Cfg` built before the kinds merge, so `genome init --blueprint venture-pipeline` created 16 of 19 files (§2d.7) — is fixed in the same build, with the full suite at **841 passed, 10 skipped** |
 
 ## 4. The order, and why
 

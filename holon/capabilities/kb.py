@@ -36,7 +36,7 @@ GENOME = Path(__file__).resolve().parent.parent / "vendor" / "genome.py"
 #      stale suppressions hid archive files with no INDEX rows and an orphan STATUS page for
 #      two days. guard: `GenomePin.test_a_stale_pointer_ignore_is_finding_w00a` and
 #      `test_w00a_fires_and_w00b_fires_and_a_bare_name_does_not` in tests/test_kb.py.
-GENOME_SHA256 = "03966ec5663667f170b425caaaf95fa59d909b9115b362b20cd44a7002fab6e7"
+GENOME_SHA256 = "a8459ff41835658509cad8fa239d475e0600cbc988261ffd8910cf8148f69e5f"
 READ_VERBS = ("find", "view", "ask", "wake", "show", "lint")
 WRITE_VERBS = ("new", "move", "set", "link")
 JSON_VERBS = ("find", "ask", "show", "new")  # the verbs with a --json form

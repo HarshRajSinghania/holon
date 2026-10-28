@@ -201,6 +201,15 @@ class GenomePin(unittest.TestCase):
         # bare names and instance paths are exempt: nothing on disk can be checked against them
         self.assertIn('if "/" not in rel', block)
         self.assertIn('token.startswith(("$", "~"))', block)
+        # and an entry carrying an inline reason is exempt: the parser strips TOML comments, so
+        # the audit reads the raw file, and a reasoned suppression is a dated decision a reviewer
+        # can read. Measured 2026-10-28: without this arm the rule fired on all four live genome
+        # repos, every one of which carries reasons -- the fourth false-positive class in the ledger.
+        self.assertIn("cfg.cfg_file", block,
+                      "the audit must read the raw config file: the parser strips inline "
+                      "comments, so parsed entries look unexplained")
+        self.assertIn("_reasoned_entries(raw_cfg", block)
+        self.assertIn("_is_reasoned(token, reasoned)", block)
         # and the suppression list is consulted from lint_core, not only lint_ops: the
         # consolidation's own repo runs [agents, core, records], so a rule living only in
         # lint_ops would never fire on it
@@ -212,18 +221,27 @@ class GenomePin(unittest.TestCase):
 
     def test_w00a_fires_and_w00b_fires_and_a_bare_name_does_not(self):
         """The rule discriminates: W00A for a stale suppression, W00B for a half-alive one,
-        silence for a bare name. Proven on a synthetic tree: docs/PRESENT.md exists (W00A),
-        docs/absent.md's directory exists but the file does not (W00B), BRIEF.md is bare."""
+        silence for a bare name and for any entry carrying an inline reason. Proven on a
+        synthetic tree: docs/PRESENT.md exists (W00A), docs/absent.md's directory exists but
+        the file does not (W00B), BRIEF.md is bare, and cron-jobs/*.md is BOTH reasoned (exempt)
+        and glob-matched against a real file it suppresses."""
         import subprocess
         import sys
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "docs").mkdir()
+            (root / "cron-jobs").mkdir()
             (root / "docs" / "PRESENT.md").write_text("# present\n")
+            (root / "cron-jobs" / "real.md").write_text("# job\n")
             (root / "genome.toml").write_text(
                 '[genome]\nmodules = ["core"]\n\n[core]\n'
-                'pointer_ignore = "docs/PRESENT.md docs/absent.md BRIEF.md"\n')
+                'pointer_ignore = [\n'
+                '  "docs/PRESENT.md",\n'
+                '  "docs/absent.md",\n'
+                '  "BRIEF.md",\n'
+                '  "cron-jobs/*.md",     # arch cron-sync owned\n'
+                ']\n')
             out = subprocess.run(
                 [sys.executable, str(kb.GENOME), "lint"],
                 cwd=root, capture_output=True, text=True)
@@ -233,6 +251,11 @@ class GenomePin(unittest.TestCase):
             self.assertIn("docs/absent.md", out.stdout)
             self.assertNotIn("`BRIEF.md`", out.stdout,
                              "a bare name has no directory to check against: it must not fire")
+            self.assertNotIn("cron-jobs", out.stdout,
+                             "an entry with an inline reason is an auditable decision, not an "
+                             "unexplained suppression: it is exempt even when it suppresses "
+                             "real files (a false positive here is the fourth entry in the "
+                             "ledger, and trains operators to disregard the pack)")
 
     def test_the_plan_the_code_cites_exists_and_names_the_phases(self):
         """`holon/capabilities/kb.py` cites `docs/plans/2026-10-19-holon-knowledge-layer.md` as

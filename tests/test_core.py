@@ -16,7 +16,7 @@ from pathlib import Path
 from holon.capabilities.context import compile_context
 from holon.core import contract, vocab
 from holon.core.contract import EnvelopeError
-from holon.core.db import connect, migrate
+from holon.core.db import connect, log_event, migrate
 from holon.core.ids import new_id, ulid
 from holon.execution.cron import Cron, CronError
 from holon.execution.drivers import extract_last_json
@@ -118,6 +118,57 @@ class Contract(unittest.TestCase):
 
 
 class Migrations(unittest.TestCase):
+    def test_concurrent_log_event_writers_leave_one_unbroken_chain(self):
+        """Measured on the live instance 2026-10-28: B1's first two wake-dispatched bodies ended
+        within the same second, both reached `log_event` outside any write transaction, and each
+        read the same chain head before inserting — the audit chain forked at event 1815 and
+        `holon doctor` has flagged `audit.chain` since. `log_event` now takes the write lock
+        itself when no transaction is open, so the head it reads is the head it extends. Two
+        writers serialize; the chain has one head.
+
+        The guard races real threads with real connections — not a mock of the race — because the
+        defect is exactly the gap between two statements, and only concurrent execution shows
+        whether the gap is closed. It reads the chain the way `holon doctor` does: recompute
+        every hash, compare to the stored one, and demand zero forks."""
+        import threading
+        from holon.core import db as db_mod
+
+        d = Path(tempfile.mkdtemp())
+        conn = connect(d / "work.db")
+        migrate(conn, "work")
+        # seed: one clean head to extend
+        log_event(conn, "task", "t0", None, None, "chair", "seed")
+
+        errs: list[str] = []
+        N = 40
+
+        def writer(tag: str) -> None:
+            c = connect(d / "work.db")
+            for i in range(N):
+                try:
+                    log_event(c, "run", f"{tag}{i}", None, None, f"emp:{tag}", f"note {tag} {i}")
+                except Exception as e:  # pragma: no cover - surfaced by the assert below
+                    errs.append(f"{tag}{i}: {e}")
+
+        threads = [threading.Thread(target=writer, args=(t,)) for t in ("a", "b")]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errs, [], f"writers failed: {errs}")
+
+        rows = conn.execute("SELECT * FROM events WHERE hash IS NOT NULL ORDER BY seq").fetchall()
+        self.assertEqual(len(rows), 2 * N + 1, "every event landed")
+        prev = ""
+        for e in rows:
+            self.assertEqual(e["prev_hash"], prev,
+                             f"event {e['seq']} extends {e['prev_hash'][:8]}, not the head {prev[:8]}: "
+                             "the chain forked")
+            self.assertEqual(e["hash"], db_mod.event_hash(e["prev_hash"], e["ts"], e["entity"], e["entity_id"],
+                                                          e["from_status"], e["to_status"], e["actor"],
+                                                          e["note"]), f"event {e['seq']} hash mismatch")
+            prev = e["hash"]
+
     def test_idempotent(self):
         conn = sqlite3.connect(":memory:", isolation_level=None)
         conn.row_factory = sqlite3.Row

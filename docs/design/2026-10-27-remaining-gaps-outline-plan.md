@@ -134,7 +134,7 @@ So the predecessor's Tier-0 framing "no clock can wake any of them" is **true fo
 and false for the engine**: nothing wakes an *employee* to a *stage*, but the clock that runs
 routines is alive. Row B1 below narrows to exactly that, and says what it does not claim.
 
-### 2d. Four things executing the plan found that its own diagnosis missed
+### 2d. Five things executing the plan found that its own diagnosis missed
 
 **1. `read_roots` is not a config key.** The obvious fix for a read-only grant — put the path in
 `[scope.dept.<slug>] read_roots` — is **silently ignored**. `scope()`
@@ -181,6 +181,26 @@ took `test_kb.py` from **19 failed → 27 passed**, zero other changes. The less
 discipline, now written on it: **a vendoring commit that does not re-pin is not landed** — the
 suite reads it as a broken build, and the failure is attributed to whoever moves the file next.
 
+**5. B1's first wake pair forked the audit chain — and the defect was in `log_event` itself.**
+The wake schedules fired, both bodies ran, and `holon doctor` gained a check this record's rows
+did not predict: `audit.chain — event 1815 breaks the hash chain`. The topology, read from
+`work.db` rows 1808-1817: Uma's branch (1812→1814) and Tess's (1815→1817) both extend event
+1811's hash — two writers read the same chain head within the same second and each built its
+own branch; every event since chains on Tess's fork. The cause is not the wake mechanism (which
+worked: claim, dispatch, and submit all ran inside `BEGIN IMMEDIATE` via `write_txn`) but
+`log_event` itself (`holon/core/db.py`): it reads the head and inserts in two **autocommit**
+statements (`isolation_level=None`), and the dispatch path records a "no envelope" event
+*outside* any transaction (`service.py:1775`) — its sibling writes are wrapped, this one is
+bare. Fix: `log_event` now takes the write lock itself when no transaction is open
+(`BEGIN IMMEDIATE` → read → insert → commit), so the head it reads is the head it extends;
+callers already inside `write_txn` are unaffected (`conn.in_transaction` leaves `own` false).
+Guard: `test_concurrent_log_event_writers_leave_one_unbroken_chain` races two real threads with
+real connections, 40 events each, and verifies zero forks — **RED-verified against the old code**
+(chain forked) before restoring the fix. The live instance's forked rows 1812-1814 remain
+orphaned history: doctor will flag `audit.chain` until the Chair dispositions them (the events
+are true records of runs that really ran; re-hashing the tail would forge history, so the
+repair is a disposition, not a rewrite).
+
 ---
 
 ## 3. The plan, in tiers
@@ -191,7 +211,7 @@ suite reads it as a broken build, and the failure is attributed to whoever moves
 | **A2** | the live `[isolation] reads` named the deprecated overlay; the canonical checkout's ACLs were not applied | **DONE 2026-10-27**: `reads` now names the one source checkout from the consolidation (`holon-personal` dropped), and `holon isolation apply --force` granted the foundation root, the canonical repo, and the three departments' venture trees | `holon doctor` prints no `isolation.reach` for the source checkout; `getfacl` shows `user:<agent>:r-x` on the foundation scripts dir and the canonical repo; the reach's declared tree and the launcher's tree are one path |
 | **A3** | `isolation.reach` on `~/.jcode/builds/versions/0.99.1` and its `jcode` binary — the build path is not in `drivers.available()`, so the reach never grants it while an employee is jcode-bound | **DONE 2026-10-27, as a side effect of the same fix**: the A1 command-token arm resolves `commands` through PATH *and* by absolute path, and the reach now carries `~/.jcode/builds/versions/0.99.1` and its `jcode` binary — `getfacl` confirms `r-x` on the launcher and the binary | `holon doctor` prints **no** `isolation.reach` lines at all (measured: 0 after the second apply) |
 | **B1** | 7 active employees, **0 wake schedules**, so no clock woke an employee to a stage | **DONE 2026-10-27**: two wakes, chosen by what each employee's *roles* cover rather than by which department I had just fixed — Uma (`executive`, `researcher` → `research`, 6 ready) and Tess (`tools`, `head`+`steward` → `retro`, 1 ready). `schedule add` carries no staffing gate (the gate is on `enable`, by design), and both land enabled | **measured**: doctor's `schedule.nowake` cleared (5 → 4 errors); at 23:01:47Z both wakes fired, a `ready` stage was **claimed** (event: `ready → claimed`), a `runs` row appeared, and the task returned to `ready` with a real diagnostic. The body then failed — and reproducing it named the cause the wake could not see (below): the Chair's model credential. §6 says so rather than claiming dispatch works |
-| **B2** | 34 ready stages: 26 ventures-import approves, 6 research, 1 retro, 1 verify | the 26 are the Chair's per-job approval (`holon task approve`); the 6 research + retro + verify are legacy — one `holon dispatch --as <id> --task <stage>` each, or `holon task cancel <id> --note "…"` | `ready` counts drop by disposition, not by timeout |
+| **B2** | 34 ready stages: 26 ventures-import approves, 6 research, 1 retro, 1 verify | **re-measured 2026-10-28: the board is not what this row described.** The 26 ventures-import approvals and the 8 legacy stages are gone — dispositioned by another party (the audit trail shows the Chair working the board the same night) — and the ready set is now **11 research stages, all P1, all auto-filed incidents** ("Incident: doctor reports …"). Two target errors this plan closed (`isolation.reach`, `schedule.nowake`); the rest target the 4 stack-B smoke errors (the Chair's per law 10) plus 3 incident reports of run failures whose cause §2d has already named (the Chair's model credential) and the new `audit.chain` fork (§2d.5). Disposition: nothing to dispatch here — each stage's acceptance is "the cause is fixed and doctor is clean for this check", which is either already true, the Chair's, or blocked on the credential. Measured and surfaced; **not** auto-closed — an incident stage for a fixed defect should be closed by whoever verifies the fix on the live instance, not by the fixer | `ready` counts drop by disposition, not by timeout |
 | **C1** | 0 of 7 employees bound to jcode; 0 jcode runs ever | **NOT DONE, and deliberately.** Ruled: B1's execution showed the body layer itself is what fails, and reproducing it named the cause — the Chair's model credential is rejected (`invalid_api_key`), which operant collapses into `IO error: Operation not permitted (os error 1)`. Rebinding an employee to a driver that has **never run on this instance** would swap one unknown for another with a live consequence and fix nothing: every driver consumes the same credential pool. The prerequisites exist (the jcode binary, its launcher and its isolated `JCODE_HOME` are all granted — A3 closed them), so this row is a **one-command step waiting on the credential**, not a blocked build item | one `runs` row with `driver=jcode`, after the credential is valid and **one** employee has run cleanly on the driver already bound |
 | **D1** | the smoke probe's `… --json 2>/dev/null \| python3 -c "assert…"` shape reports a crash as `json.decoder.JSONDecodeError`, not as "the tool did not run" — measured twice (once with `/dev/null`, once without: identical) | replace the tail with an explicit status check: `genome doctor --skip-gate --json > "$tmp"; test $? -eq 0 && python3 -c "…"` — or wrap the pipe in `set -o pipefail`, which is what actually makes a middle-stage crash visible here. **The `/dev/null` is not the cause and removing it does not help** | force a failure (point the probe at a pool with a broken contract) and read a message naming the contract, not `Expecting value: line 1 column 1` |
 | **E1** | E2/F1 from the 2026-10-25 outline remain open on the live home | the Chair's two one-commands: `rm $HOLON_HOME/config/drivers/hermes.toml`; the checksum repair migration ships (`0006`), the heartbeat applies it | live-home `holon lint --strict` reads **0** errors |

@@ -128,13 +128,33 @@ def migrate(conn: sqlite3.Connection, db_name: str) -> list[str]:
 def log_event(conn: sqlite3.Connection, entity: str, entity_id: str, frm: str | None, to: str | None,
               actor: str | None, note: str | None = None) -> None:
     """Append to the audit trail. Each event carries the hash of the previous one, so any edit or
-    deletion breaks the chain (`holon doctor` verifies it). Call inside a write transaction."""
-    prev = conn.execute("SELECT hash FROM events WHERE hash IS NOT NULL ORDER BY seq DESC LIMIT 1").fetchone()
-    prev_hash = prev[0] if prev else ""
-    ts = now()
-    h = event_hash(prev_hash, ts, entity, entity_id, frm, to, actor, note)
-    conn.execute("INSERT INTO events (ts, entity, entity_id, from_status, to_status, actor, note, prev_hash, hash)"
-                 " VALUES (?,?,?,?,?,?,?,?,?)", (ts, entity, entity_id, frm, to, actor, note, prev_hash, h))
+    deletion breaks the chain (`holon doctor` verifies it). Call inside a write transaction.
+
+    Measured 2026-10-28 on the live instance: B1's first two wake-dispatched bodies ended within
+    the same second, and both ran this read-then-insert in autocommit — two statements, two
+    transactions — so each read the same chain head and each built its own branch. The audit
+    chain forked at event 1815 and `holon doctor` has flagged it since. A caller that has
+    already opened a write transaction (`write_txn`) keeps its atomicity; a caller that has not
+    — the dispatch path records a body that produced no envelope after its harness has already
+    released the claim's transaction — takes the write lock here, so the head it reads is the
+    head it extends. Two writers serialize; the chain has one head."""
+    own = not conn.in_transaction
+    if own:
+        conn.execute("BEGIN IMMEDIATE")
+    try:
+        prev = conn.execute("SELECT hash FROM events WHERE hash IS NOT NULL ORDER BY seq DESC LIMIT 1").fetchone()
+        prev_hash = prev[0] if prev else ""
+        ts = now()
+        h = event_hash(prev_hash, ts, entity, entity_id, frm, to, actor, note)
+        conn.execute("INSERT INTO events (ts, entity, entity_id, from_status, to_status, actor, note, prev_hash, hash)"
+                     " VALUES (?,?,?,?,?,?,?,?,?)", (ts, entity, entity_id, frm, to, actor, note, prev_hash, h))
+    except BaseException:
+        if own:
+            conn.execute("ROLLBACK")
+        raise
+    else:
+        if own:
+            conn.execute("COMMIT")
 
 
 def event_hash(prev_hash: str, ts: str, entity: str, entity_id: str, frm: str | None, to: str | None,

@@ -262,7 +262,7 @@ lints clean.
 |---|---|---|---|
 | **A1** | **8 errors, now CLOSED**: `foundations/platform-infra/**` and `swarm/task-grid/**` were in no reach, so the agent user could traverse to them but not read them — and every `genome doctor` contract probe plus career-pipeline's `engine_lib.py` FSM probes live there | **DONE 2026-10-27, re-measured 2026-10-28**: the foundation root joined `[isolation] reads` (the only door a plain read-only grant has — `read_roots` is not a config key, see §2d), and the same execution found the second half of the defect: `reach()` never consumed `[scope.dept.*] commands`, so a *declared* command was a grant nobody could run. Both fixed in `holon/execution/isolation.py` with two guards (one RED-verified), plus `isolation apply --force`. The reach's *declaration* is correct and its leaves are really granted (`user:<agent>:r-x`, `mask::r-x`, and every ancestor traversable — measured 19:40Z) | measured twice: `holon smoke --dept career-pipeline` went from **9 FAIL → 4 FAIL** (14 ok, 2 warn today), and all five reach-gap probes pass — `cli-reachable`, `engine-lib-phase-evidence-job`, `engine-lib-phase-evidence-freelance` (the two are named by *domain*, not `-1`/`-2` as this row first said; both `critical = true`), `outreach-veto-suite-passes`, and the shared `invariants-clean-job` |
 | **A2** | the live `[isolation] reads` named the deprecated overlay; the canonical checkout's ACLs were not applied | **DONE 2026-10-27**: `reads` now names the one source checkout from the consolidation (`holon-personal` dropped), and `holon isolation apply --force` granted the foundation root, the canonical repo, and the three departments' venture trees | `holon doctor` prints no `isolation.reach` for the source checkout; `getfacl` shows `user:<agent>:r-x` on the foundation scripts dir and the canonical repo; the reach's declared tree and the launcher's tree are one path |
-| **A3** | `isolation.reach` on `~/.jcode/builds/versions/0.99.1` and its `jcode` binary — the build path is not in `drivers.available()`, so the reach never grants it while an employee is jcode-bound | **DONE 2026-10-27, REJECTED 2026-10-28 — the reach's *declaration* is fixed, its *effect* is not, and the row's own closure claim did not hold. My first root cause was wrong; the corrected one is below.** The A1 command-token arm resolves `commands` through PATH *and* by absolute path, and `[isolation] reads` now names `~/.jcode/builds/versions/0.99.1` and its `jcode` binary, so the code-side fix stands. `holon doctor` still prints **2 `ERRO isolation.reach`** for exactly those two paths (§8), and the plan computed from the live config (`isolation.setup_plan(k)`, 219 commands) **does** grant them plus the ancestor's `x` — so the grant exists and is dead: `~/.jcode` is mode `0700` with `mask::---`, which nulls the agent's `--x`, and **the killer is an owner `chmod 700`, which recomputes the mask from its group bits (`---`) and nulls the grant** — reproduced exactly on a replica; holon's chain step grants `x` but never pins the mask (§8, corrected four times). The row's gate was "prints no isolation.reach lines at all", which was true when it was written and is false now | the gate stands and is now mechanistically exact: **`getfacl -p ~/.jcode` shows an *effective* `x` for the agent user (`mask` not `---`)**, and doctor prints no `isolation.reach` — checked by walking to the binary, not by reading the leaf's grant (§8's lesson). **A holon fix was owed and is now in: pin the mask** (`e8603b9`). `isolation.setup_plan` now emits `u:<agent>:x,m::x` on every traversal grant — the chain hops *and* the `runs` target, which carries the same fragility (found by the new guard failing on it). RED/GREEN verified, and `tests/test_isolation.py`'s old bare-`u:x` assertion now asserts the pinned form so it guards the fix rather than the defect. The live re-apply that clears today's two errors is root work and the Chair's (`holon isolation apply --force`); with the pin in place that re-apply is durable rather than one chmod from dying again |
+| **A3** | `isolation.reach` on `~/.jcode/builds/versions/0.99.1` and its `jcode` binary — the build path is not in `drivers.available()`, so the reach never grants it while an employee is jcode-bound | **DONE 2026-10-27, REJECTED 2026-10-28 — the reach's *declaration* is fixed, its *effect* is not, and the row's own closure claim did not hold. My first root cause was wrong; the corrected one is below.** The A1 command-token arm resolves `commands` through PATH *and* by absolute path, and `[isolation] reads` now names `~/.jcode/builds/versions/0.99.1` and its `jcode` binary, so the code-side fix stands. `holon doctor` still prints **2 `ERRO isolation.reach`** for exactly those two paths (§8), and the plan computed from the live config (`isolation.setup_plan(k)`, 219 commands) **does** grant them plus the ancestor's `x` — so the grant exists and is dead: `~/.jcode` is mode `0700` with `mask::---`, which nulls the agent's `--x`, and **the killer is an owner `chmod 700`, which recomputes the mask from its group bits (`---`) and nulls the grant** — reproduced exactly on a replica; holon's chain step grants `x` but never pins the mask (§8, corrected four times). The row's gate was "prints no isolation.reach lines at all", which was true when it was written and is false now | the gate stands and is now mechanistically exact: **`getfacl -p ~/.jcode` shows an *effective* `x` for the agent user (`mask` not `---`)**, and doctor prints no `isolation.reach` — checked by walking to the binary, not by reading the leaf's grant (§8's lesson). **There is no ACL-level fix, and the one I shipped was wrong — reverted in `ded51ea`.** I emitted `u:<agent>:x,m::x` and claimed it pinned the mask. Measured, `chmod 700` kills an explicitly-set `m::x` exactly as it kills a computed one (even `u:rwx` dies to `---`), so the pin is inert against the very defect it was meant to cure. What IS true: the re-apply clears today's two errors (root work, the Chair's), and the only measured survivor is the *mode* — `chmod 750` on the ancestor keeps its group bits `r-x`, so traversal survives. That is the Chair's configuration decision on their own directory, not holon's to make |
 | **B1** | 7 active employees, **0 wake schedules**, so no clock woke an employee to a stage | **DONE 2026-10-27**: two wakes, chosen by what each employee's *roles* cover rather than by which department I had just fixed — Uma (`executive`, `researcher` → `research`, 6 ready) and Tess (`tools`, `head`+`steward` → `retro`, 1 ready). `schedule add` carries no staffing gate (the gate is on `enable`, by design), and both land enabled | **measured**: doctor's `schedule.nowake` cleared (5 → 4 errors); at 23:01:47Z both wakes fired, a `ready` stage was **claimed** (event: `ready → claimed`), a `runs` row appeared, and the task returned to `ready` with a real diagnostic. The body then failed — and reproducing it named the cause the wake could not see (below): the Chair's model credential. §6 says so rather than claiming dispatch works |
 | **B2** | 34 ready stages: 26 ventures-import approves, 6 research, 1 retro, 1 verify | **re-measured three times, and my first re-measurement was wrong — corrected here in full.** I read `holon task list --stages` and reported "the board is not what this row described: the 26 approvals are gone." **Wrong: they are all still there.** The listing defaulted to `--limit 50` and priority-ordered the 13 incident researches to the top; the 26 P2 approves sat below the fold. **Counted from `work.db` directly (the source, `status='ready'` on the `stage` column): at 19:00Z, 46 ready stages — 26 `approve`** (career-pipeline 11, freelance-agency 11, architectural-leads 4, all `Routine: …` ventures-import per-job approvals), **18 `research`** (was 13), 1 `retro`, 1 `verify`. **At 20:45Z the same query read 47 — 19 research** — and the researches are still climbing, one per 15 minutes, because all of them are kernel-filed `runs keep failing on tsk_…` incidents (12 of 19) generated by the dead credential. So the research column is **a rate, not a level**: it is a live meter for the C1 blocker, and a count is a snapshot that dates the moment it was read. That is why the research count is the wrong number to disposition. The 26 approvals remain the Chair's per-job content decisions; the retro and verify remain dispatchable. **The operational lesson stands on its own: a board read through a CLI default is a sample, not an inventory — count from the source** | `ready` counts drop by disposition, not by timeout. A board whose research count tracks the wake's failure cadence is reporting the blocker, not the backlog |
 | **C1** | 0 of 7 employees bound to jcode; 0 jcode runs ever | **NOT DONE, and deliberately — blocker re-measured live three times, at 07:15Z, 18:31Z and again while writing this row.** Every time the wake schedule fired on its own clock (no dispatch from me) and produced a fresh run with the same collapsed error, on the same 15-minute cadence (19:01, 19:15, 19:31, 19:45, 20:01, 20:15, 20:31). The 18:31Z run is the documented evidence: driver `operant`, `[exit] 1`, stderr `Error: IO error: Operation not permitted (os error 1)` — the same form the rejected model credential takes. Cross-checked against the source, not a report: **0 `jcode` runs, ever.** The total's denominator is a moving target by design (151 at 20:45Z, 146 at 19:00Z — hermes 28, operant 115, script 8), so read the numerator: it is pinned at zero by the credential, not by configuration. Ruled: rebinding an employee to a driver that has **never run on this instance** while every driver consumes the same dead credential pool would swap one unknown for another with a live consequence and fix nothing. **Correction to this row's own text: "the prerequisites exist (the jcode binary, its launcher and its isolated `JCODE_HOME` are all granted — A3 closed them)" is only half true.** A3's reach *declaration* names them and the `JCODE_HOME` is right, but §8 measured that the agent user still cannot *read* the jcode binary — a dead `~/.jcode` mask, not a missing grant — so at least one prerequisite is deployed-but-drifting rather than merely unexercised. This row is a **one-command step waiting on a credential that is still rejected as of 2026-10-28T18:31Z**, and its cost is now counted in B2's rate: **each dead wake files one new research incident, every 15 minutes** | one `runs` row with `driver=jcode`, after the credential is valid **and** the agent user can read the jcode binary (A3's effect), and **one** employee has run cleanly on the driver already bound |
@@ -387,7 +387,9 @@ computes `mask::--x`, and its siblings leave it alone:
 | `setfacl -m u:$agent:--- <dir>` (a deny on the dir itself) | `---`, but the *entry* drops to `---` too, so it is **not** the live pair |
 | `setfacl -m u:$agent:x <dir>` after that deny | `--x` (the mask recovers — so deny-then-regrant cannot reach it either) |
 | `setfacl -m u:$agent:x,m::--- <dir>` | **the live pair**: entry `--x`, mask `---` |
-| then `setfacl -m u:$agent:x,m::x <dir>` | `--x` (restores) |
+| then `setfacl -m u:$agent:x,m::x <dir>` | `--x` (restores — **but only until the next chmod**: an explicit `m::x` dies to `chmod 700` exactly as a computed one does, so it is not a durable fix) |
+| `setfacl -m u:$agent:rwx <dir>` then `chmod 700` | `mask::---`, entry `rwx` — **no ACL wording survives a chmod** |
+| `chmod 750 <dir>` (instead of 700) | `mask::r-x` — **the only measured survivor is the mode**, because chmod's group bits then carry execute |
 
 The live pair is `user:<agent>:--x` with `mask::---`: a live entry behind a dead mask, on a
 directory that is mode `700` and owned by the kernel user. **This is reproduced exactly, and the
@@ -400,8 +402,10 @@ is arithmetic: `chmod`'s group bits *become* the ACL mask, and `700`'s group bit
 
 So the drift is not a mystery. **`isolation apply` grants the chain but does not pin the mask, and
 the live ancestor is mode 700** — the owner's own `chmod` on it, from any cause, silently nulls the
-grant holon just wrote. That is a holon defect (the fix is `m::x`, or re-asserting the mask), not
-an unidentified external writer. Two claims previously in this row are corrected below: the
+grant holon just wrote. That is a structural fact of POSIX ACLs — **and it has no ACL-level fix**:
+an explicitly-set `m::x` does not survive the chmod either (measured; see the retraction below), so
+nothing `setfacl` can emit is durable against it. It is not an unidentified external writer; it is
+an owner's `chmod` doing exactly what POSIX says it does. Two claims previously in this row are corrected below: the
 ctime-based version of this argument (contaminated), and the `m::---`-only version (real, but a
 special case, not the general mechanism).
 
@@ -415,25 +419,26 @@ measured directly and needs no timeline.
 
 **The defect, stated precisely — and it is not the one I first wrote here.** The previous
 paragraph read: `apply` "never re-asserts the *mask*, so its grant is one foreign `chmod` away from
-silently dying", fix: add `m::x` to the chain step. **That paragraph was right.** I retracted it
-and claimed it was "wrong on both halves" — it is not, and this correction restores it with the
-reproducer that settles it. The bare `setfacl -m u:$agent:x` on a mode-700 dir does compute
-`mask::--x` (measured), but that is the state *immediately after the grant*, not the state later:
-`chmod 700` on that same dir by its owner recomputes the mask from the group bits and nulls the
-grant, leaving `--x` with `mask::---` while the entries and children stay live — exactly the live
-directory. So `m::x` is not a no-op in the lifetime sense: it pins the mask against any later
-`chmod`, and the true `m::---` corner case found in the previous pass is one way to reach the same
-visible state, not a refutation.
+silently dying", fix: add `m::x` to the chain step. **Its diagnosis of the mechanism was right and
+its remedy was wrong.** I retracted it, restored it, and have now measured the remedy directly: it
+does not work. `chmod 700` recomputes the mask from the group bits *whether the mask was computed by
+the grant or set explicitly*, so appending `m::x` changes nothing after the chmod — the mask is
+still `---` and the entry is still `--x`. Even a `u:rwx` grant dies the same way. So the paragraph
+converged on the right mechanism and a remedy that cannot exist at the ACL layer; the honest
+statement is that the defect is real, its cause is owner chmod, and no `setfacl` wording is durable
+against it.
 
 What is true, and what the measurements do establish: the live state is a live ACL entry behind a
 dead mask, `doctor` correctly detects it (its probe is a real traversal as the agent user, not a
 presence check — `integrity/doctor.py:70-73` via `isolation.probe`), and the mask is dead because a
-`chmod` recomputed it. So the remediation is twofold: the live re-apply clears today's two errors
-(root work, the Chair's), and the durable fix is holon's — pin the mask in the chain step so a
-later `chmod` cannot silently kill a grant that `doctor` will then report as broken. **That fix is
-now in: `u:<agent>:x,m::x` on every traversal grant** (chain hops and the `runs` target), in
-`e8603b9`, RED/GREEN verified, so the next `isolation apply --force` is durable rather than one
-`chmod` from dying again.
+`chmod` recomputed it. The remediation that follows is *not* an ACL change, because I tried one and
+measured that it fails (`e8603b9`, reverted as `ded51ea`): an explicit `m::x` dies to the chmod
+exactly as a computed one does. Two things are left, both honest: the live re-apply clears today's
+two errors (root work, the Chair's — `holon isolation apply --force`), and the one measured survivor
+is the ancestor's **mode**: `chmod 750` leaves its group bits `r-x`, so a later `chmod 700` is no
+longer possible to do silently and traversal survives. Changing the operator's own directory mode is
+the Chair's decision, not holon's — and `~/.jcode` is 700 by its owner's choice, so the durable fix
+is a configuration conversation, not a code change.
 
 **The lesson, in the ledger's own terms:** a read of a *leaf* is not a read of a *reach*. Two of
 this record's prior wrong diagnoses came from reproducing a probe with the hand that was never
@@ -460,5 +465,19 @@ lifetime. What settled it was the experiment with the *whole sequence* in it: gr
 the history — a snapshot of the command's immediate effect answers a different question than the
 one doctor asks.** The `m::---` finding was not wasted: it is a real route to the same visible
 state, and recording it beside the restored chmod mechanism is more honest than either alone.
+
+**And the lesson the fix itself taught, which is the sharpest one here.** Having settled the
+mechanism, I wrote the obvious remedy — pin the mask — and asserted in three places that it made the
+re-apply "durable rather than one chmod from dying again". I never ran it. The test I wrote checked
+that the emitted command *contained* `m::x`, which passes for a remedy that does nothing. When the
+re-read forced the mutation half, one experiment falsified the whole thing: `chmod 700` kills an
+explicit `m::x` exactly as it kills a computed one, and even `u:rwx` dies to `---` — **no ACL wording
+survives a chmod**, because chmod recomputes the mask unconditionally. The fix is reverted
+(`ded51ea`) and the false claim is corrected in five places, including the table that originally
+started it. The durable answer is a configuration decision about the ancestor's mode (`750` keeps
+its group bits `r-x`, the only measured survivor), which belongs to the Chair. **The transferable
+rule: a remedy for a defect must be verified by reproducing the defect with the remedy applied. A
+guard that asserts the remedy's *presence* — that the command contains `m::x` — is not that test, and
+it will happily green-light a no-op.**
 
 ---

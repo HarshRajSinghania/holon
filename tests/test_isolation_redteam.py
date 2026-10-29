@@ -955,5 +955,57 @@ class Deployment(KernelCase):
                              "kernel must not leave frames for the next writer to merge")
 
 
+class TestChainGrantsPinTheMask(unittest.TestCase):
+    """Every plain traversal grant the plan emits must pin `m::x`.
+
+    Measured 2026-10-29 on the live instance: `~/.jcode` is mode 700, owned by the kernel user,
+    and carries `user:<agent>:--x` with `mask::---` while its children (755) hold live `r-x`
+    masks — so every path beneath it is unreachable although every leaf reads as granted, and
+    `doctor` reports two `isolation.reach` errors. The cause is arithmetic: `chmod`'s group bits
+    *become* the ACL mask, and 700's group bits are `---`. A plan that grants `x` without pinning
+    the mask writes a grant that any later `chmod` — by anyone, for any reason — silently kills.
+
+    This guard asserts on the emitted wording from a seeded home. Two constraints, both measured,
+    are why it is not a tree-applying guard: `setup_plan()` derives `top` from
+    `pwd.getpwuid(os.getuid()).pw_dir`, so a fixture outside the real home yields no chain
+    commands at all (a tree guard would pass vacuously on the empty set), and building a Kernel
+    against the live `~/holon` opens the live databases, which no test may do."""
+
+    def test_traversal_grants_pin_the_mask(self):
+        import tempfile
+        from holon.execution.service import Kernel
+        from holon.execution import isolation
+        from tests.helpers import MINIMAL
+        tmp = Path(tempfile.mkdtemp(prefix="holon-chain-pin-"))
+        try:
+            home = Home(tmp / "home")
+            home.root.mkdir(parents=True)
+            lib = tmp / "lib"
+            lib.mkdir(parents=True)
+            (lib / "f.txt").write_text("x")
+            home.config_file.write_text(
+                MINIMAL + '\n[isolation]\n'
+                f'agent_user = "{os.getlogin()}"\nreads = ["{lib}"]\n')
+            k = Kernel(home)
+            try:
+                plan = isolation.setup_plan(k)
+            finally:
+                k.close()
+            me = os.getlogin()
+            grants = [" ".join(c) for c in plan["acl"]
+                      if c[0] == "setfacl" and "-R" not in c and "-d" not in c
+                      and f"u:{me}:" in " ".join(c)]
+            self.assertTrue(grants, "no plain grant emitted: nothing to check")
+            unpinned = [c for c in grants
+                        if re.search(rf"u:{me}:x\b(?!,)", c) and "m::x" not in c]
+            self.assertFalse(
+                unpinned,
+                "a traversal grant is emitted without a pinned mask, so a later owner chmod"
+                " recomputes the mask from the mode's group bits (--- for 700) and silently kills"
+                f" it — the live ~/.jcode state. Unpinned: {unpinned[:3]}")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -658,14 +658,25 @@ def setup_plan(k) -> dict:
     keep = chains | {p for p, _ in targets}
     acl: list[list[str]] = []
     for d in sorted(chains):
-        acl.append(["setfacl", "-m", f"u:{agent}:x", str(d)])  # -d applies to a whole command: two commands
+        # The mask is pinned (`m::x`) because the grant alone is not durable. Measured 2026-10-29 on
+        # a replica of the live tree: `setfacl -m u:<agent>:x` on a mode-700 directory computes
+        # `mask::--x` and traversal works, but a later `chmod 700` on that directory — from any
+        # cause, by the owner — recomputes the mask from chmod's group bits, and 700's group bits
+        # are `---`. The named entry stays `--x`, the children keep their live `r-x` masks, and the
+        # ancestor grant is silently dead: `doctor` then reports every path beneath as unreachable
+        # while every leaf reads as granted. `m::x` pins the mask so the grant survives it.
+        acl.append(["setfacl", "-m", f"u:{agent}:x,m::x", str(d)])  # -d applies to a whole command: two commands
         acl.append(["setfacl", "-d", "-m", f"u:{agent}:---", str(d)])
         others = [str(c) for c in sorted(d.iterdir()) if c not in keep and not c.is_symlink()]
         for group in _chunk(others):
             acl.append(["setfacl", "-m", f"u:{agent}:---", *group])
     for p, mode in targets:
         if mode == "x":
-            acl.append(["setfacl", "-m", f"u:{agent}:x", str(p)])
+            # Same mask pin as the chain pass above, for the same measured reason. This branch is
+            # the run directory: it is a target, not a chain hop, so it used to be granted with a
+            # bare `u:x` — and a bare `x` on a mode-700 directory dies at the next owner `chmod`,
+            # which is exactly how the live instance's traversal grant was lost.
+            acl.append(["setfacl", "-m", f"u:{agent}:x,m::x", str(p)])
             acl.append(["setfacl", "-d", "-m", f"u:{agent}:---", str(p)])
         elif p.is_dir():
             acl.append(["setfacl", "-R", "-m", f"u:{agent}:{mode}", str(p)])

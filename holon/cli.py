@@ -1656,8 +1656,12 @@ def cmd_incident_waive(args, k):
 @command("guards", "chair", "the registered incident guards (K-2): what re-checks a fixed defect on "
          "every heartbeat, and the incident each came from")
 def cmd_guards(args, k):
+    # `check` is a reserved word in SQLite, so the column must be quoted: unquoted, the query
+    # dies at parse time with `sqlite3.OperationalError: near "check"` and the command reports
+    # nothing at all — the one surface that names what re-checks each fixed defect. Measured
+    # 2026-10-29 on the live instance, `holon guards` tracebacked on this line for every caller.
     rows = [dict(r) for r in k.wconn.execute(
-        "SELECT g.work_id, g.name, g.check, g.timeout, g.created_at, t.title AS incident"
+        "SELECT g.work_id, g.name, g.`check`, g.timeout, g.created_at, t.title AS incident"
         " FROM guards g LEFT JOIN tasks t ON t.id = g.work_id ORDER BY g.created_at")]
     _out(args, rows, "\n".join(f"{r['name']:<30} {r['check']}  ← {r['incident']}" for r in rows)
          or "no guards registered: an incident fix's `guard` field registers one")

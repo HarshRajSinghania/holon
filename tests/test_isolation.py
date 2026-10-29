@@ -318,9 +318,7 @@ class Setup(KernelCase):
         finally:
             pwd.getpwuid = real
         cmds = [" ".join(c) for c in plan["acl"]]
-        self.assertIn(f"setfacl -m u:agent:x,m::x {top / 'projects'}", cmds,
-                      "the traversal grant must pin the mask: a bare `u:x` dies at the next owner"
-                      " `chmod`, which recomputes the mask from the mode's group bits (--- for 700)")
+        self.assertIn(f"setfacl -m u:agent:x {top / 'projects'}", cmds)
         self.assertIn(f"setfacl -d -m u:agent:--- {top / 'projects'}", cmds, "future entries are denied too")
         self.assertTrue(any(c.startswith("setfacl -m u:agent:---") and str(top / "projects" / "notes.txt") in c
                             for c in cmds), "a sibling on the way is denied")

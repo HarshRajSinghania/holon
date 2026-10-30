@@ -26,11 +26,11 @@ and the genuine `delete:` findings are small.
 | S1 | `holon_submit` is published **twice** and the second copy strips `result` | `duplicate` | **every body** |
 | S2 | `holon_whoami` is published twice (both empty-schema) | `duplicate` | cosmetic, same root cause |
 | S3 | the events suite's fixture predates the staffing guard and **fails** when run live | `stale` | it has never run since 2026-10-25 |
-| S4 | 35 of 58 agent tools are unreachable to an operant body | `gap` | the body's knowledge surface is 40% |
+| S4 | 35 of 58 agent tools are unreachable to an operant body | `stale binary` | **re-measured 2026-10-30: 58/58** |
 | S5 | 4 of 5 live incidents never closed when their cause was fixed | `unmaintained` | the Chair's board lies |
 | S6 | `vendor/holon-tools.json` drifted 23 vs 58, and 3 shared schemas differ | `drift` | S1's symptom |
 | S7 | three integration guards silently `SKIP` when `HOLON_REPO` is unset | `dead guard` | S1 and S3 both hid here |
-| S8 | the observe posture denies every shell tool: no observer can read | `policy gap` | the plan clause cannot complete |
+| S8 | the observe posture denies every shell tool: no observer can read | `not a gap` | **re-measured 2026-10-30: one list, already complete** |
 | D1 | `PlatformAdapter::handle_update` is dead for all 9 adapters | `delete:` | ~200 lines |
 | D2 | `pre-reads.bak` / `holon.toml.pre-isolation.bak` | `delete:` | 2 files |
 | D3 | 139K of 188K CLI lines are the TUI | `keep` | **not a cut — see note** |
@@ -130,10 +130,17 @@ requires: `holon_recall`, `holon_kb_list`/`holon_kb_run`, `holon_playbook_list`/
 `holon_status`, `holon_dept_list`, `holon_emp_show`, `holon_msg_reply`/`holon_msg_thread`,
 `holon_objective_show`, `holon_scope`, `holon_route`, `holon_hr_review`, `holon_bylaws_draft`.
 
-Worse, the live posture configs **drop the MCP fallback**: `adapters/operant/home/{observe,act}.toml`
-carry `[mcp] autoload = true` with **no `[[mcp.servers]]` entry**, because `install.py` omits the
-mount when it detects native tools (correct — it probed them successfully at install). The body
+Worse, the live posture configs **drop the MCP fallback**: the adapter's observe- and act-posture
+configs carry `[mcp] autoload = true` with **no `[[mcp.servers]]` entry**, because `install.py` omits
+the mount when it detects native tools (correct — it probed them successfully at install). The body
 therefore has exactly the 23, and no path to the other 35.
+
+> **Corrected 2026-10-30, on re-measurement:** the path above is a placeholder for adapter homes this
+> repo does not carry, and the "exactly the 23" is a stale compiled binary, not a coverage gap. Measured
+> after the roster was regenerated: the same probe answers **58**, with every one of the 18 knowledge
+> tools named in the paragraph above present. The audit's own paragraph before this one measured 58
+> agent-reachable tools from the registry while this paragraph measured 23 from the binary; the
+> difference was never policy, it was a build. See S4 below.
 
 **My first reading was wrong and I am recording it.** I grepped `operant tools list` for `holon_`
 without `HOLON_RUN_DIR` set, got `0`, and briefly concluded the binary carried no native tools and
@@ -209,13 +216,37 @@ against it in-tree).
 
 ## S8. The observe posture denies every shell tool, leaving the observer no read path
 
+> **Corrected 2026-10-30, on re-measurement:** every element of the section below is stale, and the two
+> files it names — the adapter's observe- and act-posture configs — **do not exist in this repo** — the
+> adapter ships only `driver.toml`. The observe surface is one list, `OBSERVE_ALLOW` in the runtime.
+> Measured, it already carries the full AFT **read** suite (`aft_read`, `aft_outline`, `aft_zoom`,
+> `aft_grep`, `aft_glob`, `aft_callers`, `aft_inspect`, `aft_ast_search`, `aft_list_checkpoints`,
+> `aft_checkpoint_paths`, `aft_status`), `file_read`/`file_list`/`file_search`/`file_state`, the memory
+> readers, and `seat_policy` composes it with `native_tool_names()` — the kernel's own read API derived
+> from the vendored roster S6 regenerated — filtered only by `OBSERVE_HOLON_DENY` (seven writers).
+> `aft_bash` appears **exactly once**, in a comment stating it stays denied, which is the correct
+> surface for a research body: the sandboxed readers answer, the shell does not run.
+>
+> Two further measurement errors in the section below. It compares unlike kinds — the kernel's 31/32
+> entries are **shell verbs** governing its own `commands` policy, and the harness's are **tool names**
+> governing a seat; the two never met and no "disagreement" existed between them. And the failure it
+> cites — a research body denied `aft_read`, handing in nothing — is the 2026-10-21 live-conformance
+> defect already in the regression ledger, whose fix was adding those readers to `OBSERVE_ALLOW` in the
+> first place. It had already been closed when this section measured its consequence as still active.
+>
+> What survives is not a decision: the observer's read surface is one list, exercised from both sides
+> by the runtime's own `observe_posture_locks_the_seat_to_the_observer_tools`,
+> `observe_deny_lists_only_real_tools` and `observe_posture_denies_holon_skill_invoke`. The single
+> entry this section wanted to widen, `aft_bash`, is one an observe body should keep refused. Recorded
+> in AGENTS.md as S8-diagnosed, not as a policy gap.
+
 Measured on the live instance, from the conformance body above. Three lists disagree about what an
 observe-stage body may run:
 
 | source | `aft_bash` | `aft_read` | basis |
 |---|---|---|---|
 | kernel `policy.py` `observe_commands()` | **absent** | **absent** | the 31 read-only commands |
-| harness `observe.toml` `command_allowlist` | **present** | **present** | G-e's kernel-derived list + AFT tools |
+| harness observe-posture config, `command_allowlist` | **present** | **present** | G-e's kernel-derived list + AFT tools (this row was not reproducible: no such file exists here) |
 | harness `seat_policy.rs` `decide()` | **Escalate** | **Escalate** | `Lockdown` escalates anything unclassified |
 
 The outcome is the strictest one, by design: `seat_policy` refuses `aft_bash` because the lockdown
@@ -234,10 +265,9 @@ This is why the conformance `plan` clause runs to its full 3600s budget with no 
 body is refused once, reports the refusal, and has nothing else to try. It is not stall, and it is
 not S1 alone.
 
-**Fix:** the kernel's `observe_commands()` and the harness's `OBSERVE_TOOLS` must name the same read
-surface. Either the kernel adds the AFT read tools to `observe_commands()`, or the observe posture's
-seat geography admits them. Guard: a conformance plan clause that completes, which requires both S1
-and S8 closed.
+**Fix:** none, measured 2026-10-30 — see the correction at the top of this section. The read surface
+already exists as one list, and the only entry this section wanted to add is one an observer should
+keep out. The text below is retained as the superseded measurement.
 
 ---
 
@@ -271,7 +301,7 @@ feature, but nothing here justifies deletion.
   `NoopVad` is genuinely a no-op waiting for a second impl — 12 lines, not worth a commit.
 - **Dependencies:** 47 workspace deps, all earning their place (a multi-platform gateway + TUI).
 - **Duplicated org layers:** operant carries 2,878 lines of its own org layer against the kernel's
-  436 — but the live postures *deliberately* disable it (`observe.toml` `disabled_tools` names
+  436 — but the live postures *deliberately* disable it (the observe-posture config's `disabled_tools` names
   `cron`, `kanban`, `learning_mutation`, `learning_refine`). This is seam discipline, not duplication.
 - **The `genome` CLI entropy finding** (AGENTS ledger, 2026-10-24) is properly closed: one real copy
   at `holon/vendor/genome.py`, `scripts/genome` a symlink to it, verified byte-identical.
@@ -289,13 +319,12 @@ feature, but nothing here justifies deletion.
 | 3 | **S3:** hire an `eng` executor in `events.rs`'s fixture | events suite goes green live |
 | 4 | **S5:** `_doctor()` closes an incident whose check is clean | the Chair's board stops lying |
 | 5 | **S6:** regenerate `vendor/holon-tools.json` **after** 1, not before | vendor-is-stale test goes green |
-| 6 | **S8:** make `observe_commands()` and `OBSERVE_TOOLS` name the same read surface | an observer can read again |
-| 7 | **S4:** decide the tool-coverage policy (extend natives, or keep the MCP mount) | **owner decision** |
+| 6 | ~~**S8:** make `observe_commands()` and `OBSERVE_TOOLS` name the same read surface~~ — **closed 2026-10-30, no work** | the surface is already one list |
+| 7 | **S4:** ~~decide the tool-coverage policy (extend natives, or keep the MCP mount)~~ — **closed 2026-10-30, mechanical** | a stale compiled binary, not a policy |
 | 8 | **D1/D2:** remove the dead trait method + unreachable parsers + the second `.bak` | small, safe |
 
-Items 1-5 and 8 are mechanical. Item 6 is a one-line policy decision on which side owns the read
-surface; item 7 is a product decision. The acceptance test for the whole seam is one command: the
-operant conformance suite (`holon adapter test operant`) completing all five clauses — today the
-`plan` clause never finishes, and it needs 1 and 6 both closed.
+Items 1-6 are mechanical. Item 8 is small and safe. The acceptance test for the whole seam is one
+command: the operant conformance suite (`holon adapter test operant`) completing all five clauses —
+the `plan` clause needs 1 closed; 6 was measured closed with nothing to do.
 
 `net: -1,150 lines possible (D1 -200, D2 -2), -0 deps, one seam repaired.`

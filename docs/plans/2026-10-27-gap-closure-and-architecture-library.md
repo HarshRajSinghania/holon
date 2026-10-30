@@ -30,7 +30,7 @@ these rows are symptoms of the third and fixing a symptom first hides the cause.
 |---|---|---|
 | S7 | three integration guards `SKIP` when `HOLON_REPO` is unset | **first**: until this is fixed, nothing below can be verified |
 | S1 | `holon_submit` published twice; the surviving copy cannot carry `result` | the seam every body walks |
-| S8 | observe posture denies every shell tool: no observer can read | the plan clause's second cause |
+| S8 | observe posture denies every shell tool: no observer can read | (closed 2026-10-30: not a gap — see A3) |
 | S3 | events fixture predates the staffing guard and fails live | stale, one line |
 | S5 | 4 of 5 live incidents never close when their cause recovers | the Chair's board lies |
 | S6 | `vendor/holon-tools.json` drifted (S1's symptom) | **after** S1, or the drift is written in |
@@ -67,16 +67,13 @@ Guard (two clauses, mutation-verified both directions):
 
 ### A3 (S8) — one read surface for an observer
 
-Three lists disagree, measured live: kernel `policy.observe_commands()` = 31 read-only words, no
-`aft_*`; harness `observe.toml` `command_allowlist` = those 31 **plus** `aft_bash`, `aft_read`,
-`file_write`, `file_list`, `file_search`; harness `seat_policy.decide()` escalates the unclassified
-under `Lockdown`. Strictest wins, so the conformance body was refused `aft_bash`, recorded the
-refusal correctly, and handed in nothing.
-
-Steps: `observe_commands()` and operant's `OBSERVE_TOOLS` must name the **same** surface. Either the
-kernel admits the AFT read tools, or the observe posture's seat geography does — the decision is which
-side owns it, and the kernel is the authority that `policy.json` enforces. Guard: a conformance plan
-clause that completes, which requires A2 and A3 both closed.
+> **Closed 2026-10-30, measured, no work required.** The three-lists-disagree framing above was wrong
+> in three ways at once. The files it names (`observe.toml`) do not exist here; the surface is one list,
+> `OBSERVE_ALLOW`, and it already carries the AFT read suite, the file readers and the kernel's read
+> API composed from the vendored roster. The kernel's 32 entries are **shell verbs** and the harness's
+> are **tool names**, so the "disagreement" compares things that never met. And the failure it cites was
+> the 2026-10-21 live-conformance defect, already closed by adding those readers in the first place.
+> The audit's S8 section carries the full measured correction and retains its own superseded text.
 
 ### A4 (S3) — staff the events fixture
 
@@ -205,14 +202,14 @@ reader can run them:
 | 2 | A2 (S1+S2), A3 (S8) | **the operant conformance plan clause completes** |
 | 3 | A4 (S3), A5 (S5) | events suite green live; the Chair's board is true |
 | 4 | A6 (S6) | `vendor-is-stale` green with `HOLON_REPO` set |
-| 5 | A7 (S4) | owner decision |
+| 5 | ~~A7 (S4)~~ | closed 2026-10-30, mechanical (a stale binary, not a decision) |
 | 6 | A8 (D1/D2) | full suite green, `-1,150` lines |
 | 7 | B1 spine + index | lint 0/0, genome clean |
 | 8 | B2 narratives | genome clean, scrub clean |
 | 9 | B3 vocabulary rows | `lint --strict` 0/0, law-7 binding |
 | 10 | B4 demos | each command copy-paste-clean |
 
-Phases 1-4 and 6 I can execute now. Phase 5 needs the Chair. Phase 7-10 are writing work whose
+Phases 1-6 I can execute now. Phase 5's "owner decision" was re-measured 2026-10-30 as mechanical. Phase 7-10 are writing work whose
 *source* is the live system — which is why Part A precedes Part B: the library should depict a seam
 that runs.
 
@@ -310,7 +307,7 @@ three times over. Executed on the kernel (this repo) and the runtime repository 
 | **S5** (incidents that never close) | **closed** `79cf030` | 4 of 7 live incidents named checks that now report clean. Both guards were null tests before mutation-verification found that; the round is recorded in the ledger rather than smoothed over. |
 | **S6** (vendor drift) | **closed** `fd854aeb` | regenerated **after** S1, as the plan requires: 0 removed / 35 added, matching the audit's counts exactly, and the 3 schema drifts resolved. |
 | **S3** (events fixture) | **closed** `fd854aeb` | the staffing gate refused the fixture's approval correctly; one hire line staffs the fixture. The kernel needed no change. |
-| **S8** (the observer's read surface) | **open** | needs a decision on which side owns the surface (the kernel is the authority `policy.json` enforces), so it is not mechanical. |
+| **S8** (the observer's read surface) | **closed, and re-diagnosed** | the audit called it a policy gap needing a decision on which side owns the surface. Measured, there is no decision to make: the config files it cited do not exist here, the read surface is one list (`OBSERVE_ALLOW`) that already carries the AFT read suite, the file readers and the kernel's read API composed from the regenerated roster, and it is tested from both sides. The only entry the audit wanted to add is `aft_bash`, which an observe body should keep out. This plan called it "the plan clause's second cause" — the clause's real cause was S1 alone. |
 | **S4** (35 tools unreachable) | **closed, and re-diagnosed** | the audit called it *"a product decision, not a mechanical one"* — measuring it after S6 found the opposite: the 23-tool count came from a **stale compiled binary** that embeds the roster at build time. Rebuild and the same probe answers **58**, including every one of the 18 knowledge tools the audit named by hand. |
 | **D1/D2** (dead code, a second `.bak`) | **open** | safe and small, and still decoupled from everything above. |
 

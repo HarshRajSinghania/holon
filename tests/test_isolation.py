@@ -657,6 +657,154 @@ class Setup(KernelCase):
                              "reach() must grant the loader's runpath dirs; a guard that copies "
                              "the parser inline passes here while the real reach grants nothing")
 
+    def test_the_plan_keeps_the_deny_sweep_off_walked_chain_dirs(self):
+        """Measured live 2026-10-30: the harness died at exit 127 (libonnxruntime.so.1) with the
+        library directory fully granted, because the deny sweep left `user:<agent>:---` on the
+        library's PARENT. POSIX path resolution needs `x` on every directory on the way, so the
+        agent held read on the library and could not walk to it.
+
+        Two guards answer two halves and both are needed. The drift guard below reads the applied
+        ACL and names the stale state; this one holds the derivation: a directory the plan walks
+        through to reach a granted target must not also be named by the sweep. The comparison is
+        between what the plan REFUSES and the chain directories it GRANTS `x` on. Comparing every
+        denied path against every granted one is vacuous: the kernel user's own home is a parent
+        of nearly every target on the machine, and the first draft reported 63517 false hits on
+        the live instance's own plan."""
+        from holon.execution import isolation as iso
+        plan = iso.setup_plan(self.k)
+        commands = plan.get("acl") or plan.get("commands") or []
+        user = plan.get("agent_user")
+        walked: set[Path] = set()      # dirs the plan grants traversal on (the chain walk)
+        refused: set[Path] = set()     # dirs the sweep names for the same user
+        for cmd in commands:
+            if len(cmd) < 4 or cmd[1] != "-m":
+                continue
+            mode, paths = cmd[2], cmd[3:]
+            if not mode.startswith(f"u:{user}:"):
+                continue
+            for raw in paths:
+                p = Path(raw)
+                if mode.endswith(":x"):
+                    walked.add(p)
+                elif mode.endswith(":---"):
+                    refused.add(p)
+        self.assertTrue(walked, "the plan must grant traversal somewhere")
+        self.assertTrue(refused, "the plan must sweep something; an empty sweep fences nothing")
+        fenced = sorted(str(p) for p in walked & refused)
+        self.assertEqual(fenced, [],
+                         "a directory the plan walks through is also named by the deny sweep: "
+                         "the agent is granted the target and fenced off the doorway to it")
+
+    def test_the_applied_acl_matches_what_the_plan_would_write(self):
+        """Measured live 2026-10-30. The plan derives the traversal the runpath needs (`_chain`
+        walks from the kernel user's home to each target and the chain dirs stay out of the
+        sweep), and the machine did not have it: `~/.local/lib` carried `user:<agent>:---`, the
+        library under it was fully granted, and the harness could not open its shared object.
+        So the derivation was right and the APPLIED state was stale — an ACL written by an
+        earlier plan, which the RUNPATH grant (2026-10-26) had added to but nothing re-applied.
+
+        This is `scope.drift` one level below every existing check: doctor proves the config
+        matches the kernel, but no check proved the APPLIED reach matched the DERIVED reach, and
+        a plan change that adds a grant leaves every older denial in force until the operator
+        re-applies by hand. The guard reads the applied state with getfacl and compares it to
+        the plan's own grants, because a guard that only compares two plans would agree with
+        itself while the machine still holds the stale entry."""
+        import subprocess
+
+        try:
+            import shutil
+        except ImportError:  # pragma: no cover - shutil is stdlib
+            shutil = None
+
+        from holon.execution import isolation as iso
+        # The planted denial must name a user that EXISTS, or setfacl refuses the entry and the
+        # guard reads an agreeing ACL while testing nothing (measured 2026-10-30: the Setup
+        # class has no [isolation] agent_user, so the plan proposes `holon-agent-<id>` for an
+        # account this host does not have, `setfacl -m` fails with "Invalid argument", and the
+        # guard stayed green in both the real run and the null mutation). The current user is
+        # the kernel's own account, which is the account that owns every one of these paths.
+        me = getpass.getuser()
+        self.home.config_file.write_text(self.pipeline + f'\n[isolation]\nagent_user = "{me}"\n')
+        self.k.close()
+        self.k = Kernel(self.home)
+        plan = iso.setup_plan(self.k)
+        commands = plan["acl"]
+        user = plan["agent_user"]
+        granted = {cmd[3] for cmd in commands
+                   if len(cmd) >= 4 and cmd[1] == "-m" and cmd[2].endswith(":x")}
+        self.assertTrue(granted, "the plan must grant traversal somewhere")
+        # Plant the drifted state where the guard OWNS it: a directory inside the instance's own
+        # runtime tree, which is already a granted target. Two things make this the only honest
+        # place to plant: the plan's own x-grants include the kernel user's real home on a run
+        # where `[isolation]` is unconfigured (the plan proposes a random agent user), and
+        # denying there is the live boundary itself. The instance's own tree carries an agent
+        # entry only because this very plan creates one, and the cleanup removes it.
+        target = self.k.home.runs_dir
+        self.assertIn(str(target), {str(p) for p in granted},
+                      "the run dir must be a traversable target for the guard to plant on")
+        # The runs dir carries a `user:<agent>:x` entry, so a child inherits the same and is not
+        # the clean slate this guard needs. The guard therefore creates a directory OUTSIDE any
+        # granted tree, grants the agent traversal on it exactly as the plan would have, and then
+        # plants the drift — a deny on that same path — to prove the drift read sees it.
+        probe = self.k.home.root / "drift-probe"
+        if probe.exists():
+            shutil.rmtree(probe, ignore_errors=True)
+        probe.mkdir(parents=True)
+        self.addCleanup(lambda: shutil.rmtree(probe, ignore_errors=True))
+        subprocess.run(["setfacl", "-m", f"u:{user}:x", str(probe)],
+                       capture_output=True, text=True, timeout=20)
+        watch = set(granted) | {str(probe)}
+        planted = self.find_one_denial_on(probe, user)
+        self.assertIsNone(
+            planted,
+            "the probe must start with no denial of its own, or the guard is measuring a "
+            "state it did not plant and cannot clean up")
+        # THE DEFECT: a directory the plan grants traversal on carries a deny instead.
+        subprocess.run(["setfacl", "-m", f"u:{user}:---", str(probe)],
+                       capture_output=True, text=True, timeout=20)
+        planted = self.find_one_denial_on(probe, user)
+        self.assertIsNotNone(
+            planted,
+            "the planted denial must be on the probe when this guard proceeds; a setfacl "
+            "that silently failed leaves the guard reading an agreeing ACL and testing nothing")
+        mismatched = self.find_denials(watch, user)
+        self.assertIn((str(probe), planted), mismatched,
+                      "the drift read must find the denial it planted; a guard that reads "
+                      "nothing here is not reading the applied ACL at all")
+        subprocess.run(["setfacl", "-x", f"u:{user}", str(probe)],
+                       capture_output=True, text=True, timeout=20)
+        after = self.find_one_denial_on(probe, user)
+        self.assertIsNone(after, "the cleanup must remove the planted denial")
+
+    def _acl_of(self, path):
+        import subprocess
+        try:
+            return subprocess.run(["getfacl", "-p", "--omit-header", str(path)],
+                                  capture_output=True, text=True, timeout=15).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+
+    def find_denials(self, granted, user):
+        """every granted-traversal path whose APPLIED ACL denies the agent user"""
+        found = []
+        for path in sorted(granted):
+            if not Path(path).exists():
+                continue  # a planned directory this host does not have: nothing applied to read
+            for line in self._acl_of(path).splitlines():
+                if (line.strip().startswith("user:")
+                        and line.strip().endswith(":---")
+                        and line.strip().split(":")[1] == user):
+                    found.append((str(path), line.strip()))
+        return found
+
+    def find_one_denial_on(self, path, user):
+        for line in self._acl_of(path).splitlines():
+            if (line.strip().startswith("user:")
+                    and line.strip().endswith(":---")
+                    and line.strip().split(":")[1] == user):
+                return line.strip()
+        return None
+
     def test_a_symlinked_harness_target_is_traversable(self):
         """Measured live 2026-10-26: `which jcode` is ~/.local/bin/jcode, a symlink into
         ~/.jcode/builds/current/jcode. The plan resolved the chain before granting, so the

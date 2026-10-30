@@ -182,6 +182,22 @@ it already parses. Guard: `test_every_kernel_constructor_honours_the_mode` walks
 `Kernel(` calls outside the helper and fails — the same shape as the 2026-10-25 row that caught
 the hand-maintained list, which is the drift class that made G4 possible.
 
+**Done 2026-10-30** (`99cdfaa`), and **the plan's own framing was wrong in a way worth recording.**
+It said the MCP half was "an employee mounting this organization has no read-only mode at all" —
+that is not what `mcp.py:174` is. It is a helper that answers one question, *which stage is this
+run token's run at*, for the result schema. So the defect was not a missing mode; it was a read
+**opening read-write as the Chair** to answer it. Both halves of the plan's fix were measured
+against the three sites rather than assumed: the two conformance harnesses dispatch real work and
+rightly take read-write (they now say so explicitly), and only the MCP site was narrow. The guard
+is an AST rule — a site is in violation when it passes NEITHER `readonly=` NOR `actor=` — because
+a list of sites is the hand-maintained artefact the ledger's entropy rows keep finding. **The
+behavioural half of that guard was a null test**: with the keywords present but their values
+reverted to the widest (`actor="chair", readonly=False`) the AST guard is perfectly happy, so the
+assertion is on the mode itself, not on a keyword. Four mutations were run; the two half-measures
+(chair+readonly, anonymous+not-readonly) are each caught by the value assertion, which is the pair
+being honest about what it can see.
+
+
 ---
 
 ## §6. G5 — the remediation that names a command the gate refuses

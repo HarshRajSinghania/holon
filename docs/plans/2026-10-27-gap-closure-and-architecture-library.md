@@ -263,3 +263,37 @@ orchestration 0" and concluded the architecture was undocumented. The right inst
 per-term sweep across the four law docs *plus* ARCHITECTURE, not a vocabulary count that treated
 absence of a word as absence of a mechanism. A newer, thinner record (2026-10-25) states the rule
 this broke: *"a claim about live state must name its home."* The documentation home was never named.
+
+## Execution note 2 (2026-10-30): the A1 row, re-measured on the instance that carries the work
+
+The 2026-10-25 successor outline left row A1 unresolved: it said the `[isolation]` config section
+was absent while the 2026-10-26 red-team had measured the boundary live, so the row violated the
+very rule quoted above — *a claim about live state must name its home*. Re-measured on the home
+the operator's own user units name (read from `systemctl --user cat` of `holon-tick.service`,
+`holon-broker.service` and `holon-notion.service`, all three agreeing):
+
+- **A1 is closed.** The instance's config file (mtime 2026-10-28) carries `[isolation]` with
+  `agent_user`, `runner` and a `reads` list; the named agent user exists on this host (uid 956);
+  and the durable setup script exists and is current. Doctor's standing `isolation.off` is gone —
+  the boundary is *organized*, no longer absent.
+- **What remains is reach, not organization.** Doctor reports `isolation.reach` errors naming
+  harness paths the agent user cannot read. Measured against the kernel's own reach derivation,
+  the config's two `reads` prefixes satisfy only 2 of the 19 read paths the kernel now derives —
+  the rest arrived after the config was written: the user's local bin with the harness binaries
+  under it, a harness's own library directory, the git identity files, two work repositories'
+  metadata dirs, the instance's knowledge base, a task-grid pooled unit and its binary, and two
+  system shell paths.
+- **The kernel already names every one of them.** The plan generates 219 ACL entries covering all
+  17 unsatisfied paths verbatim, so this is a *stale applied boundary*, not a missing mechanism:
+  the derivation is live and correct, and only the application is behind. The root half of the
+  setup (creating and recording the user) is already done, and it deliberately carries no ACL
+  grants; the reach grants are the kernel user's own command.
+- **The remaining action is one Chair command, and it is deliberately not run here** because it
+  rewrites ACLs across the host: the isolation apply with `--force`. Recorded rather than
+  assumed, since the alternative — an agent applying host-wide reach changes to a live instance
+  to close a row in its own plan — is the class the boundary's own gate exists to stop.
+- Doctor's other findings on that home are unrelated to A1 and are left as found: five critical
+  smoke failures in the imported `career-pipeline` department (a missing auth library, a missing
+  kb library, a missing binary on the path, an absent resume file and a live drift), a broken
+  audit-hash event, the backups sharing the instance's device, and one route's health probe
+  exiting 127.

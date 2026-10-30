@@ -35,7 +35,7 @@ these rows are symptoms of the third and fixing a symptom first hides the cause.
 | S5 | 4 of 5 live incidents never close when their cause recovers | the Chair's board lies |
 | S6 | `vendor/holon-tools.json` drifted (S1's symptom) | **after** S1, or the drift is written in |
 | S4 | 35 of 58 agent tools unreachable to an operant body | product decision, not mechanical |
-| D1/D2 | dead `handle_update` trait + unreachable parsers + a second `.bak` | safe, small |
+| D1/D2 | dead `handle_update` trait + unreachable parsers + a second `.bak` | (closed 2026-10-30: not a cut — see A8) |
 
 ### A1 (S7) — make the live-checked guards actually live
 
@@ -110,9 +110,21 @@ there is no fallback.
 
 ### A8 (D1/D2) — the small safe cuts
 
-`PlatformAdapter::handle_update` has no production caller for any adapter (`gateway/mod.rs:14` says
-so); Slack/WhatsApp/Email/SMS carry inbound parsers nothing reaches. ~200 lines. Plus
-`holon.toml.pre-reads.bak` (untouched while a parallel session edits it).
+> **Closed 2026-10-30, and the plan's own framing was wrong: this was not a safe cut.**
+> `PlatformAdapter::handle_update` is indeed dead for every adapter, measured by a workspace-wide
+> search — telegram and discord reach their own static parsers from their poll loops, the webhook
+> adapter has its own HTTP handler. But the runtime's own records decide the deletion **before** this
+> plan was written: RT-120 states the method is dead *and* that deleting it or wiring it is one and the
+> same decision, which is RT-89's, and RT-86 records the four parsers as the implementation the
+> deferred Socket Mode feature needs (the Slack parser is already a complete inbound parser). A
+> deletion spends the Chair's decision in the only direction that cannot be undone, and the "dangerous
+> direction" A8 named — a reader concluding Slack receives — is already closed: those adapters report
+> `inbound: false`, one gateway table is the single source, `operant gateway status` prints it, and a
+> test holds the table over all seven. And D2 is already gone: a find for `*.bak` in the runtime tree
+> returns nothing. So the last open Part A item closes with no code change, and this plan's headline
+> "-1,150 lines" was never the honest net.
+
+Superseded text retained in the audit's D1/D2 section.
 
 ---
 
@@ -203,7 +215,7 @@ reader can run them:
 | 3 | A4 (S3), A5 (S5) | events suite green live; the Chair's board is true |
 | 4 | A6 (S6) | `vendor-is-stale` green with `HOLON_REPO` set |
 | 5 | ~~A7 (S4)~~ | closed 2026-10-30, mechanical (a stale binary, not a decision) |
-| 6 | A8 (D1/D2) | full suite green, `-1,150` lines |
+| 6 | A8 (D1/D2) | **closed 2026-10-30, no code change** |
 | 7 | B1 spine + index | lint 0/0, genome clean |
 | 8 | B2 narratives | genome clean, scrub clean |
 | 9 | B3 vocabulary rows | `lint --strict` 0/0, law-7 binding |
@@ -309,7 +321,7 @@ three times over. Executed on the kernel (this repo) and the runtime repository 
 | **S3** (events fixture) | **closed** `fd854aeb` | the staffing gate refused the fixture's approval correctly; one hire line staffs the fixture. The kernel needed no change. |
 | **S8** (the observer's read surface) | **closed, and re-diagnosed** | the audit called it a policy gap needing a decision on which side owns the surface. Measured, there is no decision to make: the config files it cited do not exist here, the read surface is one list (`OBSERVE_ALLOW`) that already carries the AFT read suite, the file readers and the kernel's read API composed from the regenerated roster, and it is tested from both sides. The only entry the audit wanted to add is `aft_bash`, which an observe body should keep out. This plan called it "the plan clause's second cause" — the clause's real cause was S1 alone. |
 | **S4** (35 tools unreachable) | **closed, and re-diagnosed** | the audit called it *"a product decision, not a mechanical one"* — measuring it after S6 found the opposite: the 23-tool count came from a **stale compiled binary** that embeds the roster at build time. Rebuild and the same probe answers **58**, including every one of the 18 knowledge tools the audit named by hand. |
-| **D1/D2** (dead code, a second `.bak`) | **open** | safe and small, and still decoupled from everything above. |
+| **D1/D2** (dead code, a second `.bak`) | **closed, and re-diagnosed** | the plan called it a small safe cut. Measured, the deletion is a Chair decision (RT-89/RT-120) because deleting and wiring are one choice, the four parsers are the deferred feature's implementation, and both `.bak` files are already gone. -1,150 lines was never the honest net. |
 
 **What the execution changed about the plan's own claims.** Two measurements corrected the audit's
 own text rather than the code: the audit said S6's 3 schema drifts "**are** S1", and they are not —

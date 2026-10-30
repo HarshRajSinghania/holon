@@ -31,8 +31,8 @@ and the genuine `delete:` findings are small.
 | S6 | `vendor/holon-tools.json` drifted 23 vs 58, and 3 shared schemas differ | `drift` | S1's symptom |
 | S7 | three integration guards silently `SKIP` when `HOLON_REPO` is unset | `dead guard` | S1 and S3 both hid here |
 | S8 | the observe posture denies every shell tool: no observer can read | `not a gap` | **re-measured 2026-10-30: one list, already complete** |
-| D1 | `PlatformAdapter::handle_update` is dead for all 9 adapters | `delete:` | ~200 lines |
-| D2 | `pre-reads.bak` / `holon.toml.pre-isolation.bak` | `delete:` | 2 files |
+| D1 | `PlatformAdapter::handle_update` is dead for all 9 adapters | `not a cut` | **re-measured 2026-10-30: deleting it is the Chair's decision** |
+| D2 | `pre-reads.bak` / `holon.toml.pre-isolation.bak` | `gone` | **re-measured 2026-10-30: neither file exists** |
 | D3 | 139K of 188K CLI lines are the TUI | `keep` | **not a cut — see note** |
 
 ---
@@ -280,9 +280,28 @@ and SMS have full inbound parsers nothing reaches; Telegram, Discord and webhook
 Leaving them is the dangerous direction: a reader concludes Slack receives messages, and the adapters
 each carry a comment saying they cannot.
 
+> **Corrected 2026-10-30: the deletion half of this finding is withdrawn, and the naming was wrong.**
+> The deadness is real and measured (a workspace-wide search finds no caller: telegram and discord
+> reach their own static parsers from their poll loops, the webhook adapter has its own HTTP handler).
+> The *deletion* is not a cleanup — it is the same decision as wiring, and the runtime's own records
+> say so before this audit was written. RT-120 records the trait method as dead *and* states that
+> deleting it or wiring it is one and the same decision, which is RT-89's; RT-86 records the four
+> parsers as the implementation a deferred feature needs, with the Slack parser already a complete
+> inbound parser. Deleting them would spend the Chair's decision in the one direction that cannot be
+> undone. The "dangerous direction" the finding names — a reader concluding Slack receives — is
+> already closed: those adapters report `inbound: false`, one gateway table is the single source of
+> that truth, `operant gateway status` prints it, and a test holds the table over all seven. What
+> survives is D1's premise applied to itself: it named nine adapters where the gateway carries seven.
+> Nothing to do. Same shape as S4 and S8: a finding about code that moves is rarely a finding about
+> code.
+
 **D2. `pre-reads.bak` / `holon.toml.pre-isolation.bak` — 2 files.** `pre-isolation.bak` was removed
 in Tier 0 (proven a strict subset, 0 unique keys, isolation provably live). `pre-reads.bak` is a
 second one and is untouched because a parallel session is editing it. *Remove when that lands.*
+
+> **Corrected 2026-10-30: closed, no work.** A find across the runtime tree for `*.bak` and
+> `*.pre-isolation.bak` returns nothing — both files are gone, `pre-reads.bak` included. The parallel
+> session that held the second one evidently finished.
 
 **D3. The TUI is 139K of 188K CLI lines — but do not cut it.** `crates/operant-cli/src/tui/` is
 119,959 production lines across 8 submodules, with 19,340 lines of its own tests. It is unreachable
@@ -321,10 +340,13 @@ feature, but nothing here justifies deletion.
 | 5 | **S6:** regenerate `vendor/holon-tools.json` **after** 1, not before | vendor-is-stale test goes green |
 | 6 | ~~**S8:** make `observe_commands()` and `OBSERVE_TOOLS` name the same read surface~~ — **closed 2026-10-30, no work** | the surface is already one list |
 | 7 | **S4:** ~~decide the tool-coverage policy (extend natives, or keep the MCP mount)~~ — **closed 2026-10-30, mechanical** | a stale compiled binary, not a policy |
-| 8 | **D1/D2:** remove the dead trait method + unreachable parsers + the second `.bak` | small, safe |
+| 8 | **D1/D2:** ~~remove the dead trait method + unreachable parsers~~ — **closed 2026-10-30, decision not cleanup**; ~~the second `.bak`~~ — **closed 2026-10-30, already gone** | nothing left here |
 
-Items 1-6 are mechanical. Item 8 is small and safe. The acceptance test for the whole seam is one
-command: the operant conformance suite (`holon adapter test operant`) completing all five clauses —
+Items 1-6 are mechanical, and 7 turned out to be too. Item 8 dissolved on measurement: the trait
+method's deletion is the Chair's call (RT-89/RT-120) and both `.bak` files are gone. The acceptance
+test for the whole seam is one command: the operant conformance suite (`holon adapter test operant`) completing all five clauses —
 the `plan` clause needs 1 closed; 6 was measured closed with nothing to do.
 
-`net: -1,150 lines possible (D1 -200, D2 -2), -0 deps, one seam repaired.`
+`net: -1,152 lines possible (D1 -200, D2 -2), -0 deps, one seam repaired — but D1's -200 is a Chair
+decision, not cleanup, and D2 is already gone, so the honest net here is one seam repaired and zero
+lines cut.`

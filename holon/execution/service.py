@@ -2600,6 +2600,36 @@ class Kernel:
                                + "\nFind the cause and fix it; the incident is done when doctor is clean for this check.")
             if r:
                 out.append(r)
+        out.extend(self._resolve_incidents(set(errors)))
+        return out
+
+    def _resolve_incidents(self, failing: set[str]) -> list[dict]:
+        """Close a doctor incident whose check is clean again — the promise `_doctor` makes in its
+        own text ("the incident is done when doctor is clean for this check") that nothing kept.
+
+        Measured 2026-10-30 on the live instance: **4 of 7** open incidents named checks that now
+        report clean, `isolation.off` among them — a boundary that had been closed was still on
+        the Chair's board as an open incident. The board lied in the direction that costs work: an
+        incident someone has already made obsolete stays open, so nobody reads it, and the next
+        real one arrives beside a pile of closed-but-open ones.
+
+        Two rules, both measured rather than assumed. It closes only work THIS mechanism opened
+        (title and `source='kernel'`), so an incident the Chair wrote by hand — which may name
+        something no check covers at all — is not the kernel's to retire. And it goes through
+        `Work._set`, so the close is hash-chained like every other status change (law 4): who
+        closed it and when survives in the audit trail instead of only in the row."""
+        out = []
+        with write_txn(self.wconn):
+            rows = self.wconn.execute(
+                "SELECT id, title FROM tasks WHERE stage IS NULL AND source='kernel' AND "
+                "title LIKE 'Incident: doctor reports %' AND status IN "
+                "('open','blocked','waiting','needs_input')").fetchall()
+            for row in rows:
+                check = row["title"][len("Incident: doctor reports "):]
+                if check in failing:
+                    continue
+                self.work._set(row["id"], "done", note=f"doctor reports {check} clean again")
+                out.append({"incident": row["id"], "title": row["title"], "closed": True})
         return out
 
     def _incident_open(self, title: str) -> bool:

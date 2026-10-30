@@ -1,5 +1,6 @@
 """R5: the feedback loops. Every loop has a sensor, a comparator, and an actuator that is work."""
 
+from holon.core.vocab import EXECUTIVE
 from holon.integrity import doctor
 from tests.helpers import JD, KernelCase
 
@@ -196,6 +197,95 @@ class DoctorOnTheHeartbeat(KernelCase):
                       "an absent trust boundary reaches an incident: it is the exposure that "
                       "reaches nobody while it is a warning")
         self.assertFalse([x for x in self.k.tick()["triggered"] if "incident" in x], "doctor waits doctor_every_min")
+
+    def test_a_doctor_incident_closes_when_its_check_recovers(self):
+        """S5 (2026-10-26 two-repo audit): `_doctor` opens an incident per failing check and its own
+        text promises *"the incident is done when doctor is clean for this check."* No code closed
+        it — `_incident_open` only dedupes, and the only close path was `task cancel` (chair).
+
+        Measured on the live instance: **4 of 7** open incidents named checks that now report
+        clean, `isolation.off` among them — a boundary that had since been closed was still on the
+        Chair's board as an open incident. The board lies in the direction that costs work: an
+        incident someone has already made obsolete stays open, so nobody reads it, and the next
+        real one arrives beside a pile of closed-but-open ones.
+
+        The subject is `isolation.off`, which is the check the live stale incident names, and which
+        a test can genuinely recover by configuring the boundary. (`audit.chain` cannot: its
+        fixture seed is already tampered, so there is no whole chain to restore to — measured, not
+        assumed. A guard whose cause cannot be undone proves nothing about the close.)
+
+        The close goes through `Work._set`, so it is hash-chained like every other status change
+        (law 4), and it only touches work THIS mechanism opened — an incident the Chair wrote by
+        hand is not this check's to retire."""
+        self.k.auth.init_chair_key()
+        first = [x for x in self.k.tick()["triggered"] if "incident" in x]
+        self.assertIn("Incident: doctor reports isolation.off", {x["title"] for x in first},
+                      "an absent boundary is an error, and an error reaches an incident")
+        row = self.k.wconn.execute(
+            "SELECT id FROM tasks WHERE stage IS NULL AND title='Incident: doctor reports isolation.off' "
+            "AND status IN ('open','blocked','waiting','needs_input')").fetchone()
+        self.assertIsNotNone(row, "the incident this mechanism opened is on the board")
+
+        # close the cause: the boundary is configured, so the check reports clean. The interval
+        # gate is cleared too — it is the mechanism's own 30-minute rate limit, and the guard's
+        # subject is what the NEXT doctor run does, not when it is due.
+        self.k.config["isolation"]["agent_user"] = "holon-agent-test"
+        self.k.config["isolation"]["runner"] = "@holon-runner-test"
+        self.k.wconn.execute("UPDATE settings SET value='2026-01-01T00:00:00.000000Z' WHERE key='doctor_ts'")
+        self.k.tick()
+        gone = self.k.wconn.execute(
+            "SELECT id FROM tasks WHERE stage IS NULL AND title='Incident: doctor reports isolation.off' "
+            "AND status IN ('open','blocked','waiting','needs_input')").fetchone()
+        self.assertIsNone(gone, "the incident is closed now that its check is clean")
+        chained = self.k.wconn.execute(
+            "SELECT 1 FROM events WHERE entity_id=? AND to_status='done' "
+            "AND note LIKE '%doctor reports isolation.off clean again%'", (row["id"],)).fetchone()
+        self.assertIsNotNone(chained, "the close is chained, with a note naming what closed it")
+
+    def test_a_recovered_incident_close_is_chained_and_scoped_to_this_mechanism(self):
+        """Two ways this close could go wrong, and this guard was a NULL TEST until it was
+        mutation-verified.
+
+        The first draft planted a hand-written incident titled "Incident: the operator's own note"
+        and asserted the sweep left it alone. Dropping the `source='kernel'` filter — the exact
+        regression the guard exists to catch — **still passed**, because the sweep's title pattern
+        (`Incident: doctor reports %`) excludes that title on its own: the scope was never
+        exercised. Measured with `fnmatch` against the same pattern, not argued.
+
+        So the fixture now carries a title that MATCHES the pattern and a source the kernel does
+        not write, which is the only shape that reaches the filter under test: work that looks
+        exactly like this mechanism's incident but was not opened by it.
+
+        The check is `isolation.off`, not `audit.chain`: the chain's fixture seed is already
+        tampered, and healing one row breaks the next row's `prev_hash` link — measured, so the
+        check cannot be recovered from in a test and the sweep would never run at all."""
+        self.k.auth.init_chair_key()
+        self.k.tick()
+        dept = self.k.config["healing"]["incident_dept"]
+        try:
+            self.k.org.dept(dept)
+        except LookupError:
+            dept = EXECUTIVE
+        handmade = self.k.work.add_work(title="Incident: doctor reports isolation.off",
+                                        intent="written by the operator, reporting the same check "
+                                               "the kernel reports — indistinguishable by title",
+                                        dept=dept, source="chair", requested_by="chair")
+        # close the cause so the sweep has a reason to run, then let it run
+        self.k.config["isolation"]["agent_user"] = "holon-agent-test"
+        self.k.config["isolation"]["runner"] = "@holon-runner-test"
+        self.k.wconn.execute("UPDATE settings SET value='2026-01-01T00:00:00.000000Z' WHERE key='doctor_ts'")
+        self.k.tick()
+        still = self.k.wconn.execute("SELECT 1 FROM tasks WHERE id=? AND status IN "
+                                     "('open','blocked','waiting','needs_input')", (handmade["id"],)).fetchone()
+        self.assertIsNotNone(still, "work the kernel did not open is not closed by this sweep, "
+                                    "even when its title matches")
+        # and the mechanism's OWN incident for the same check IS closed, so the sweep did run:
+        # a guard that passes because the sweep was gated off would prove nothing.
+        theirs = self.k.wconn.execute(
+            "SELECT 1 FROM tasks WHERE source='kernel' AND "
+            "title='Incident: doctor reports isolation.off' AND status IN "
+            "('open','blocked','waiting','needs_input')").fetchone()
+        self.assertIsNone(theirs, "the sweep ran — the kernel's own incident for that check is closed")
 
 
 class BuildRegression(Loops):

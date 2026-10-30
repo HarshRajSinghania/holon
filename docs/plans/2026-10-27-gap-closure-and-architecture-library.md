@@ -297,3 +297,30 @@ the operator's own user units name (read from `systemctl --user cat` of `holon-t
   kb library, a missing binary on the path, an absent resume file and a live drift), a broken
   audit-hash event, the backups sharing the instance's device, and one route's health probe
   exiting 127.
+
+## Execution note 3 (2026-10-30): Part A is executed, and four of the eight rows are closed
+
+Part A ran for real this time, and the cause-first ordering the plan prescribed was load-bearing
+three times over. Executed on the kernel (this repo) and the runtime repository in that order:
+
+| row | state | what was measured |
+|---|---|---|
+| **S7** (the guards that skip) | **closed** `ad70d2b6` | the plan said "put `HOLON_REPO` in CI"; the runtime's checkout has **no CI at all**, so the variable's absence was the *default* state of every run. The skip was the normal path, which is how S1 and S3 hid. Closed at the test level with the fallback `api.rs` already used, and mutation-verified with the defect itself as the mutation. |
+| **S1** (duplicated `holon_submit`) | **closed** `15300a9` | 60 tools, 58 unique; a dict-resolving client got the argparse copy with `run_id`+`file` and **no `result`**. The guard that should have caught it used `next(...)`, which sees only the first copy. |
+| **S5** (incidents that never close) | **closed** `79cf030` | 4 of 7 live incidents named checks that now report clean. Both guards were null tests before mutation-verification found that; the round is recorded in the ledger rather than smoothed over. |
+| **S6** (vendor drift) | **closed** `fd854aeb` | regenerated **after** S1, as the plan requires: 0 removed / 35 added, matching the audit's counts exactly, and the 3 schema drifts resolved. |
+| **S3** (events fixture) | **closed** `fd854aeb` | the staffing gate refused the fixture's approval correctly; one hire line staffs the fixture. The kernel needed no change. |
+| **S8** (the observer's read surface) | **open** | needs a decision on which side owns the surface (the kernel is the authority `policy.json` enforces), so it is not mechanical. |
+| **S4** (35 tools unreachable) | **open** | a product decision, not a defect. |
+| **D1/D2** (dead code, a second `.bak`) | **open** | safe and small, and still decoupled from everything above. |
+
+**What the execution changed about the plan's own claims.** Two measurements corrected the audit's
+own text rather than the code: the audit said S6's 3 schema drifts "**are** S1", and they are not —
+the vendor's `holon_submit` was missing the typed envelope the separate G-b repair publishes, which
+is a *different* row's work arriving through the same file. And S7's prescription assumed a CI that
+does not exist, which would have closed a row by writing a file into a pipeline that never runs.
+
+**The lesson worth keeping.** Three of this round's guards were null tests, and every one was found
+by running the mutation rather than by reading the guard — including one whose mutation *appeared*
+to pass because an earlier mutation in the same command had silently failed to apply. A green suite
+measured a defect; a mutation that did not apply proved nothing.

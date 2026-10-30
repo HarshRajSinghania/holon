@@ -380,12 +380,20 @@ class Smoke(LaneCase):
 
 class Fallback(LaneCase):
     def test_a_slow_second_endpoint_answers_only_decisions_that_can_wait(self):
+        """Waiting is the default and only a caller that CANNOT wait opts out.
+
+        The old form of this guard asserted the opposite — `ask(...)` took its safe default and
+        `ask(..., patient=True)` was the only way to reach the second endpoint. That was the
+        2026-10-30 defect measured live: three of four call sites passed the then-default
+        `patient=False`, so a keyed and working fallback was never consulted. The guard now holds
+        the corrected default from both sides: the opt-out really does skip the second endpoint,
+        and the default really does reach it."""
         slow = FakeDecisions()
         self.addCleanup(slow.close)
         self.fake.status = 429
         cfg = {**self.k.config["classifier"], "fallback_url": slow.url, "fallback_model": "clef"}
         d = Decider(cfg)
         q = {"a": {"type": "noul", "instructions": "?"}}
-        self.assertIsNone(d.ask("s", q), "an impatient caller takes its safe default")
-        self.assertEqual(d.ask("s", q, patient=True)["a"]["noul"], 0.95)
+        self.assertIsNone(d.ask("s", q, impatient=True), "only a caller that cannot wait skips it")
+        self.assertEqual(d.ask("s", q)["a"]["noul"], 0.95, "waiting is the default")
         self.assertEqual(slow.requests[-1]["model"], "clef")

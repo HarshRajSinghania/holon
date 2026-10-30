@@ -1260,10 +1260,14 @@ class Kernel:
         return out
 
     # ── lanes: the cheapest way to do each job, chosen at intake and enforced (docs/BYLAWS.md §10) ──
-    def _ask(self, why: str, state: str, questions: dict, patient: bool = False) -> dict | None:
+    def _ask(self, why: str, state: str, questions: dict, impatient: bool = False) -> dict | None:
         """A decision, or None. A failure (rate limit, outage) is recorded as an event and reaches the Chair:
-        every caller then takes its safe default, which costs verifier sessions until the model is back."""
-        a = self.decider.ask(state, questions, patient)
+        every caller then takes its safe default, which costs verifier sessions until the model is back.
+
+        `impatient` is forwarded: the second endpoint is tried unless the caller says it cannot wait
+        (the 2026-10-30 fix — this used to pass `patient` and default it to False, so the fallback was
+        skipped on every path but the rubric judge's, and a dead primary read as a dead model)."""
+        a = self.decider.ask(state, questions, impatient)
         if a is None and self.decider.on:
             with write_txn(self.wconn):
                 self.work._event("classifier", "decider", None, "failed",
@@ -1628,7 +1632,7 @@ class Kernel:
             state += f"\n\n--- Gold standard ({gold['work_id']}) ---\n{gold['summary']}\n{(gold['documentation'] or '')[:6000]}"
             if gold.get("trajectory_text"):
                 state += f"\n\nHow the gold standard got there (compacted trajectory):\n{gold['trajectory_text']}"
-        a = self._ask("rubric", state, qs, patient=True)
+        a = self._ask("rubric", state, qs)
         if a is None:
             return None
         scores = {("gold standard" if q == "gold" else rubric[int(q[1:])]): round(p_yes(a[q]), 3) for q in qs}

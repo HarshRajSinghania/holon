@@ -48,16 +48,23 @@ class Decider:
         except OSError:
             return None
 
-    def ask(self, state: str, questions: dict, patient: bool = False) -> dict | None:
+    def ask(self, state: str, questions: dict, impatient: bool = False) -> dict | None:
         """Answers keyed by question id, or None: off, or every endpoint failed (`self.error` says why).
-        Callers treat None as "no opinion" and take their safe default. `patient`: the caller can wait for the
-        fallback endpoint (it runs in a dispatch, not in the Chair's terminal or the heartbeat)."""
+        Callers treat None as "no opinion" and take their safe default.
+
+        `impatient`: the caller CANNOT wait for the second endpoint, so the fallback is skipped. Waiting
+        is the default and only a named caller opts out of it — measured live 2026-10-30, three of
+        four call sites passed `patient=False` (the old default), so a keyed, working fallback was
+        never consulted and the Chair was told the decision model was unavailable while it answered
+        the same question at 0.762. A new call site therefore inherits the behaviour that tries both
+        endpoints rather than the one that hides a dead primary. Every caller here takes its safe
+        default on failure either way, so the cost of waiting is bounded by `fallback_timeout_s`."""
         if not self.on or not questions:
             return None
         noul_only = all(q["type"] == "noul" for q in questions.values())
         model = (self.cfg["noul_model"] or self.cfg["model"]) if noul_only else self.cfg["model"]
         a = self._post(self.cfg["url"], model, self.cfg["key_file"], self.cfg["timeout_s"], state, questions)
-        if a is None and patient and self.cfg["fallback_url"] and self.cfg["fallback_model"]:
+        if a is None and not impatient and self.cfg["fallback_url"] and self.cfg["fallback_model"]:
             first = self.error
             a = self._post(self.cfg["fallback_url"], self.cfg["fallback_model"], self.cfg["fallback_key_file"],
                            self.cfg["fallback_timeout_s"], state, questions)

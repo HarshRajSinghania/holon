@@ -145,6 +145,19 @@ close says nothing and lets the operator discover the gate. One guard over the w
 either a registered guard or a recorded waiver, asserted over the sweep's own output on the live
 instances's four subjects (isolation.off, isolation.runner, isolation.broker, schedule.nowake).
 
+**Done 2026-10-30** (`a199ba0`), and the live count is **five** subjects, not the four this row named
+(isolation.off, isolation.runner, isolation.reach, isolation.broker, schedule.nowake — measured,
+5 `done` incidents and 0 guards). A guard names a `[checks.class]` entry the Chair authored and
+the kernel must not invent one, but for a **doctor** incident the re-check genuinely exists — the
+check that just reported clean. So where a class is declared the sweep registers the check itself
+(a failure reopens the incident, K-2's own promise), and where none is it records a waiver naming
+the check and why no command can re-check it, in the same settings key `holon incident waive`
+writes. The second mutation is the reason the guard asserts both branches: making the lookup
+return the check name unconditionally — the plausible "register everything" fix — ships a guard
+that can never run and fails on the next heartbeat for every close it touched. The first draft
+died with "cannot start a transaction within a transaction" (`Auth._put` opens its own
+`write_txn`; the sweep is already inside one — `_put_raw` is the in-transaction writer).
+
 ---
 
 ## §5. G4 — the read-only door, the half it does not cover

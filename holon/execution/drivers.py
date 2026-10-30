@@ -215,6 +215,42 @@ def driver_env(driver: "Driver", brief: dict) -> dict[str, str]:
         raise DriverError(f"driver {driver.name}: unknown [env] placeholder {e}") from None
 
 
+def prepare_run_dir(run_dir: Path, driver: "Driver") -> None:
+    """The directories a driver's own environment names, created before the harness starts.
+
+    Measured live 2026-10-30 on the Chair's instance, the incident the digest called "runs keep
+    failing": a driver may declare `OPERANT_MEMORY_DIR = "{run_memory}"`, and the kernel resolves
+    it to `<run_dir>/memory` — and nothing created it. No run directory on the instance carried a
+    memory dir at all. The harness, handed a path that does not exist, falls back SILENTLY to its
+    `$HERMES_HOME` store, so every run on the instance shared ONE memory bank: colleagues'
+    working contexts mutually readable, and (measured by reproducing the run's real command
+    through the runner) the shared bank's FTS index rebuild hangs the harness, so the stage reads
+    as a run that keeps failing rather than a body that cannot start.
+
+    The formatting guard (`test_the_kernel_formats_the_per_run_memory_placeholder`) passes
+    throughout that: it checks the resolved value is right, which it was. Only the directory was
+    missing. So this walks the driver's resolved [env] and creates any value that names a path
+    under the run's own directory — a value that names a path ANYWHERE else is not ours to
+    create, and is left for the harness to fail on honestly.
+    """
+    brief_dir = Path(run_dir)
+    for key, value in (driver.env or {}).items():
+        values = {"run_id": brief_dir.name, "task_id": "", "stage": "",
+                  "employee_id": "", "run_memory": str(brief_dir / "memory")}
+        try:
+            resolved = value.format(**values)
+        except (KeyError, IndexError):
+            continue  # not a placeholder we know: the spawn formats it and reports a bad one
+        if resolved == value or not resolved.startswith("/") or "{" in resolved:
+            continue  # not a path, or a template this helper cannot resolve without the brief
+        path = Path(resolved)
+        # only under the run's own directory: creating elsewhere is not the kernel's to do
+        if path != brief_dir and brief_dir not in path.parents:
+            continue
+        if not path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+
+
 def run(home: Home, driver: Driver, brief: dict, token: str | None = None, alive=None,
         alive_every_s: float = 15.0, isolation: dict | None = None) -> dict:
     """Invoke the harness and return {'exit_code', 'envelope' | None, 'log_path', 'stdout_tail'}.
@@ -226,6 +262,10 @@ def run(home: Home, driver: Driver, brief: dict, token: str | None = None, alive
     the run's environment (never the kernel's), and reaches the organization through the broker."""
     if brief["stage"] not in driver.stages:
         raise DriverError(f"driver {driver.name} does not serve the '{brief['stage']}' stage")
+    # The per-run directories the driver's own environment names, BEFORE the harness looks for
+    # them: a placeholder that resolves to a path that does not exist is a silent fallback to a
+    # shared store (measured 2026-10-30: one shared memory bank for every run on the instance).
+    prepare_run_dir(Path(brief["brief_md"]).parent, driver)
     cmd, cwd = render(driver, brief)
     if not Path(cwd).is_dir():
         cwd = str(Path(brief["brief_md"]).parent)

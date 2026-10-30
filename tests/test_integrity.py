@@ -657,6 +657,28 @@ class Doctor(KernelCase):
                                 "doctor names the gated commands it tells the operator to run; "
                                 "if that count fell, this guard drifted silent")
 
+    def test_a_named_force_escape_names_its_consequence(self):
+        """The other half of the same family, and the one the 2026-10-30 plan named as G5 --
+        measured, and the plan's premise was stale: `gc --apply`'s refusal ALREADY names both
+        escapes (`holon backup --to …` first, or `--force`). What it did not name is what
+        `--force` costs. An escape offered without its price is the remediation class one level
+        deeper: the operator is told a flag exists and not what the flag decides.
+
+        The rule, derived rather than listed: every `--force` escape a refusal offers must be
+        followed, in the same sentence, by what skipping the gate leaves behind. Measured as the
+        consequence being named, not as a magic phrase -- `backup.same_device` on this one,
+        because that is the finding that already says the disk is the only copy."""
+        import inspect
+        from holon.integrity import gc
+        src = inspect.getsource(gc.apply)
+        for m in re.finditer(r"--force", src):
+            window = " ".join(src[m.start():m.start() + 260].split())
+            if "first, or" not in src[max(0, m.start() - 200):m.start()]:
+                continue    # a signature or a docstring mention, not an escape being offered
+            self.assertRegex(
+                window, r"(only copy|the disk it lives on|no other copy|irreversible)",
+                f"the gate offers `--force` without naming what it costs: {window[:170]}")
+
     def test_separation_of_duties_is_audited_in_history(self):
         t = self.add(dept="eng", task_class="demo")
         self.plan_and_approve(t, assignee=self.dev1, writes=[])

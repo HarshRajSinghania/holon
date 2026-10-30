@@ -82,7 +82,9 @@ def apply(k, p: dict, force: bool = False) -> dict:
     if not force and (age is None or age > max_age):
         raise PermissionError(
             f"no backup newer than {max_age} days (newest: {p['backup']['newest'] or 'none'}, "
-            f"{age if age is not None else 'never'} days old); run `holon backup --to …` first, or --force")
+            f"{age if age is not None else 'never'} days old); run `holon backup --to …` first, or "
+            f"--force to collect anyway — with no recent backup the only copy of what this deletes is "
+            f"the disk it lives on, which doctor's `backup.same_device` already warns about")
     removed, kept = 0, 0
     for item in p["run_dirs"]:
         d = Path(item["dir"])

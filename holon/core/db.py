@@ -16,6 +16,12 @@ from typing import Iterator
 
 BUSY_TIMEOUT_MS = 15000
 
+# The connections `connect` opened `mode=ro`, by id. A set of ids is not a leak of objects: a
+# dead connection's id is reusable, and a stale id can only make a *new* read-write connection
+# look read-only, so `close` drops an id when its connection is closed and `is_read_only` never
+# holds a reference (holding one would keep the connection object alive forever).
+_RO_CONNS: set[int] = set()
+
 
 def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -32,7 +38,35 @@ def connect(path: Path, readonly: bool = False) -> sqlite3.Connection:
         conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+    if readonly:
+        _RO_CONNS.add(id(conn))
     return conn
+
+
+def close(conn: sqlite3.Connection) -> None:
+    """Close a connection `connect` opened, dropping its read-only record.
+
+    Without this, `_RO_CONNS` keeps an id after its connection object is collected, and a later
+    connection can be handed the same id and look read-only to every write path -- the failure
+    is a write that is silently skipped, which is the direction a stale flag must never point.
+    """
+    _RO_CONNS.discard(id(conn))
+    conn.close()
+
+
+def is_read_only(conn: sqlite3.Connection) -> bool:
+    """Whether this connection was opened `mode=ro`.
+
+    Measured rather than assumed, twice. `PRAGMA query_only` answers 0 for a connection opened
+    with `mode=ro` -- it tracks an explicit `PRAGMA query_only=ON`, not the URI's mode -- and a
+    `sqlite3.Connection` refuses new attributes outright, so the caller's choice cannot be
+    carried on the connection either. What is left is the choice itself, kept where the
+    distribution can see it: `connect` records the id of every connection it opened read-only,
+    and `is_read_only` asks that set. A connection somebody else opened is not the
+    distribution's to classify, and answers False, which is the safe direction for a write
+    path: it attempts the write and sqlite refuses it as it always did.
+    """
+    return id(conn) in _RO_CONNS
 
 
 @contextmanager

@@ -955,5 +955,126 @@ class Deployment(KernelCase):
                              "kernel must not leave frames for the next writer to merge")
 
 
+    def test_the_documented_read_only_mode_is_a_door_on_the_cli(self):
+        """AGENTS.md tells every agent to "read live state only with `mode=ro`", and the
+        2026-10-24 audit record repeated that phrase in its own evidence. The mechanism
+        it names exists and is mutation-verified — `Kernel(..., readonly=True)` opens both
+        databases `mode=ro`, writes nothing and brings no instance into being.
+
+        Measured 2026-10-30, the phrase names a door that was never built. `holon --help`
+        carries only `--home`, `--token`, `--json` and `--version`: there is no `--mode`, so
+        an agent following the instruction runs the one command that reaches the kernel and
+        gets a read-WRITE connection instead. `main()` is the single construction site for
+        every command in the registry (`cli.py:2046`, `Kernel(home, actor="anonymous")`), and
+        it never passes `readonly`. The instruction is not merely wrong at the edges: it is
+        unachievable, and the whole session's probes took the write path while believing they
+        were reading.
+
+        The defect class is the 2026-10-24 row one level up: that row made the *mechanism*
+        read-only and left the *entry* open. A read-only mechanism no command can reach is a
+        promise in a docstring. The door is `--mode ro`, threading the existing parameter, and
+        it must work on the command an agent actually reaches for (`doctor`) — the one the
+        doc sentence names in the same breath.
+        """
+        home = self.tmp / "cli-ro" / "home"
+        home.mkdir(parents=True)
+        _K = Home(home)
+        seed = Kernel(_K)
+        seed.close()
+        for p in home.rglob("*"):
+            p.chmod(0o644 if p.is_file() else 0o755)
+
+        before = {str(q.relative_to(home)): (q.stat().st_mtime_ns, q.stat().st_size)
+                  for q in home.rglob("*") if q.is_file()
+                  and not q.name.endswith(("-wal", "-shm"))}
+
+        # `main` returns its code rather than raising (the bin entry point is what raises),
+        # so the assertion is on the return. The run happens under the spy below, so this is
+        # the same single call: what it must prove is that the command RAN (a nonzero exit is
+        # a doctor finding, not a crash) and that the kernel it opened was read-only.
+        import holon.execution.service as _svc
+        from holon.cli import main
+        seen: list[bool] = []
+        real_init = _svc.Kernel.__init__
+
+        def spy(self, home, *a, readonly=False, **kw):
+            seen.append(readonly)
+            return real_init(self, home, *a, readonly=readonly, **kw)
+
+        _svc.Kernel.__init__ = spy
+        try:
+            code = main(["--home", str(home), "--mode", "ro", "doctor"])
+        finally:
+            _svc.Kernel.__init__ = real_init
+        # A nonzero exit is a doctor finding, not a crash: the command RAN.
+        self.assertIn(code, (0, 1), "the read-only doctor did not run at all")
+        self.assertEqual(seen, [True], "the CLI did not open the kernel read-only: it passed "
+                                       f"{seen} to the constructor -- `--mode ro` never arrived")
+
+        # A mode the parser does not know is refused, not absorbed. Dropping argparse's
+        # `choices` makes any unknown string read as `rw` -- the write door -- so a typo
+        # (`--mode read-only`, `--mode RO`, `--mode readonly`) silently returns the exact state
+        # this whole change exists to close, and nothing says so. Measured: without `choices`
+        # that mutation passes the two guards above, so the guard for it is its own.
+        from holon.cli import build_parser
+        for typo in ("read-only", "RO", "readonly", "ro,", ""):
+            # argparse prints usage to stderr on the way out, which is the right behaviour for
+            # the command and noise in a test run.
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                build_parser().parse_args(["--mode", typo, "doctor"])
+        # and the spelling the docs actually teach is the one that lands
+        self.assertEqual(build_parser().parse_args(["--mode", "ro", "doctor"]).mode, "ro")
+
+        # and the instance's databases were never opened for writing. The `-wal`/`-shm`
+        # sidefiles are excluded for the reason the 2026-10-24 guard measured and named:
+        # opening a WAL database read-only still creates them, and a non-empty `-wal` is the
+        # only part that is a write -- asserted separately below, so this is not a blanket
+        # exemption for exactly the artefact that would prove a write.
+        still = {str(q.relative_to(home)): (q.stat().st_mtime_ns, q.stat().st_size)
+                 for q in home.rglob("*") if q.is_file()
+                 and not q.name.endswith(("-wal", "-shm"))}
+        self.assertEqual(before, still, "the read-only CLI pass changed the instance: a "
+                          "read-only probe must not migrate, seed or chmod anything")
+        for w in still.keys() | before.keys():
+            if w.endswith("-wal"):
+                self.assertEqual(Path(home, w).stat().st_size, 0,
+                                 f"the read-only pass left frames in {w}: that IS a write")
+
+        # The write door still works without the flag: `--mode ro` narrows, it does not seal.
+        # A read-only kernel refuses a write the normal path performs, which is the whole
+        # difference between the two modes and the reason this guard holds both halves.
+        seed2 = Kernel(Home(home))
+        self.assertNotEqual(seed2.readonly, True)
+        seed2.close()
+
+    def test_the_read_only_mode_refuses_a_writing_command_outright(self):
+        """A read-only door is only a door if it also says no: a command that must write,
+        run under `--mode ro`, is refused by name rather than half-attempting a write the
+        connection will reject mid-transaction. The failure mode this replaces is silent: the
+        kernel's own readonly guard refuses each statement, so an agent's `holon task add`
+        under a read-only probe fails somewhere in the org layer with a message about sqlite.
+
+        Refusing by name is also the honest contract: an agent learns its seat, not a stack
+        trace, and the Chair's audit trail records the refusal as a refusal.
+        """
+        home = self.tmp / "cli-ro-refuse" / "home"
+        home.mkdir(parents=True)
+        seed = Kernel(Home(home))
+        seed.close()
+        from holon.cli import main
+        import contextlib, io
+        err = io.StringIO()
+        # `tick` is a writer with no required args: the refusal reaches dispatch rather than
+        # being masked by argparse, which returns the same exit 2 for a missing required flag
+        # and would make this guard test the parser instead of the seat.
+        with contextlib.redirect_stderr(err):
+            code = main(["--home", str(home), "--mode", "ro", "tick"])
+        # Exit 4 is FORBIDDEN, the same code a seat refusal returns: a read-only probe is a
+        # narrower seat, not a new one. What makes it honest is the text naming the mode.
+        self.assertEqual(code, 4, "a writing command was not refused read-only")
+        self.assertIn("read-only", err.getvalue().lower(),
+                      "the refusal must name the read-only mode it refused under")
+
+
 if __name__ == "__main__":
     unittest.main()

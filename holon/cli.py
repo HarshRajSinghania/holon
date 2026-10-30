@@ -1940,6 +1940,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--home", help="instance root (default: $HOLON_HOME)")
     p.add_argument("--token", help="a run token (default: $HOLON_RUN_TOKEN)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    # The read-only door the distribution's own trust-boundary instruction has named since
+    # 2026-10-24. `Kernel(readonly=True)` has existed and been mutation-verified since that
+    # audit; what never existed was a way to reach it from the command line, so the
+    # instruction "read live state only with `mode=ro`" sent every agent down the write path
+    # instead -- which is what a probe of this distribution did to itself.
+    p.add_argument("--mode", choices=["ro", "rw"], default="rw",
+                   help="`ro`: open the instance's databases read-only (a command that must write is refused by name)")
     p.add_argument("--version", action="version", version=f"holon {__version__}")
     root = p.add_subparsers(dest="cmd", required=True)
     groups: dict[tuple, argparse._SubParsersAction] = {(): root}
@@ -2043,7 +2050,19 @@ def main(argv: list[str] | None = None, broker: dict | None = None) -> int:
     try:
         from holon.execution.service import Kernel
         home = Home.resolve(args.home)
-        k = Kernel(home, actor="anonymous")
+        # `--mode ro`: open the instance's databases read-only. This is the door AGENTS.md has
+        # named in its own audit instructions since 2026-10-24, and until now it named nothing:
+        # `readonly=True` existed on the Kernel, was mutation-verified, and was reachable from
+        # no command, so every agent told to "read live state only with `mode=ro`" opened the
+        # write side and took the migration path. Under `ro`, a command that must write is
+        # refused by name (law 8's own `mutates` declaration is the basis) rather than failing
+        # part-way inside sqlite, which is the honest contract: the reader learns its seat.
+        ro = getattr(args, "mode", "rw") == "ro"
+        if ro and cmd.mutates:
+            print(f"holon: `{' '.join(cmd.path)}` writes, so it is refused in read-only mode "
+                  "(`--mode ro`); drop the flag to run it", file=sys.stderr)
+            return FORBIDDEN
+        k = Kernel(home, actor="anonymous", readonly=ro)
         principal = k.auth.agent_principal(broker.get("token"), broker.get("key")) if broker is not None \
             else k.auth.principal(args.token)
         if principal.kind == "anonymous" and getattr(args, "intake_key", None):

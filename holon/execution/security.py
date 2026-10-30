@@ -25,7 +25,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from holon.core.db import now, write_txn
+from holon.core.db import now, write_txn, is_read_only
 from holon.core.ids import ulid
 from holon.core.paths import Home
 from holon.core.vocab import CHAIR
@@ -76,6 +76,12 @@ class Auth:
         return r[0] if r else None
 
     def _put(self, key: str, value: str) -> None:
+        # A read-only probe (Kernel(readonly=True)) must not write the instance's settings,
+        # not even a stamp it derived itself. `instance_id` and `last_seen` are lazily
+        # materialized, so without this guard every read-only open tried to INSERT into a
+        # database opened `mode=ro` and the probe died on its first identity read.
+        if is_read_only(self.conn):
+            return
         with write_txn(self.conn):
             self.conn.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", (key, value))
 

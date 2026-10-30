@@ -31,7 +31,7 @@ from holon.capabilities.skills import Library
 from holon.core import contract, vocab
 from holon.core.contract import EnvelopeError
 from holon.bylaws import units
-from holon.core.db import connect, migrate, now, write_txn
+from holon.core.db import connect, migrate, now, write_txn, close as db_close
 from holon.core.paths import Home
 from holon.core.vocab import CHAIR, EXECUTIVE
 from holon.execution import autonomy, briefs, drivers, bylaws, grading, isolation, security
@@ -303,8 +303,10 @@ class Kernel:
         self.auth = security.Auth(self.wconn, home)
 
     def close(self) -> None:
-        self.wconn.close()
-        self.mconn.close()
+        # through db.close, not conn.close: a read-only connection's record is dropped with the
+        # object, so a later connection handed the same id cannot look read-only to a write path
+        db_close(self.wconn)
+        db_close(self.mconn)
 
     # ── helpers ───────────────────────────────────────────────────────────
     @property

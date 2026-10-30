@@ -1336,17 +1336,25 @@ class ApiMemoryDrift(KernelCase):
         page no gate can reach."""
         self.assertEqual(lint.run(self.k, ["genome"]), [], "the distribution's own genome checks pass")
         self.assertIn("genome", lint.PACKS, "the genome pack is registered")
-        # and a page the repo's gate cannot reach is now reported by the kernel's lint too
-        readme = ROOT / "README.md"
-        original = readme.read_text()
+        # and a page no gate can reach is now reported by the kernel's lint too.
+        # The fixture must be a page genuinely orphaned, not one assumed to have a single
+        # referrer: `docs/PAGE-INDEX.md` links every law doc by name, so removing one README
+        # link leaves it reachable and the rule correctly stays silent. That premise broke
+        # silently when the index gained an ARCHITECTURE row (the guard went red on a tree
+        # whose only change was adding a page that names another page). So the orphan is
+        # planted rather than assumed.
+        orphan = ROOT / "docs" / "zz-orphan-probe.md"
+        orphan.write_text("# orphan probe\n\nnothing links here\n")
         try:
-            readme.write_text(original.replace("[ARCHITECTURE](docs/ARCHITECTURE.md) (how\n"
-                                                "the kernel, the instance and the agents fit together) ", "x "))
             found = lint.run(self.k, ["genome"])
-            self.assertTrue(any(f["rule"] == "genome.W009" for f in found),
+            # the pack parses the CLI's "W009 <token> <rule text>: <page>" line, so the page
+            # name lands in the message and the docs dir in `where`
+            self.assertTrue(any(f["rule"] == "genome.W009"
+                                and "zz-orphan-probe.md" in str(f.get("message", ""))
+                                for f in found),
                             f"an unlinked page is reported by the kernel's lint: {found}")
         finally:
-            readme.write_text(original)
+            orphan.unlink()
 
     def test_the_genome_pack_fails_loudly_when_the_distributions_lint_errors(self):
         """A pack that silently swallows a failing gate is worse than no pack: it would report clean

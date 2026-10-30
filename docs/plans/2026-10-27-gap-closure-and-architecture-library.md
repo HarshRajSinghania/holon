@@ -217,3 +217,49 @@ Phases 1-4 and 6 I can execute now. Phase 5 needs the Chair. Phase 7-10 are writ
 that runs.
 
 `net: 8 seams repaired, ~1,150 lines cut, one portfolio library (~1,400 new doc lines across 13 files).`
+
+---
+
+## Execution note (2026-10-30): two corrections this plan owes its own claims
+
+Part A was **not executed** and the tooling gated it: the shell was unavailable for the whole
+session (`echo` and `true` both failed with `ENOENT`), so no gate in Part A could run —
+`cargo test`, `pytest`, `holon lint`, `scripts/genome lint`, and the live-instance probes are all
+shell-bound. A plan whose every row demands a measured gate cannot be executed on claim alone.
+Part A's rows remain exactly as they stand above; nothing here closes any of them.
+
+**Part B's premise was wrong, and the writing changed because of it.** B3 said the law docs carry
+no multi-agent vocabulary; two measured greps over `docs/INTENT.md` and `docs/ARCHITECTURE.md`
+disagree:
+
+- `ARCHITECTURE.md` is already the **architecture chapter set** this plan asked to write: the shape,
+  the one-writer rule, the work graph (with a holarchy diagram and a stage-lifecycle diagram), the
+  two interfaces, the trust boundary, the eight subsystems, the reading order, and the three
+  extension seams. It even answers the portfolio question the library is for, in one page.
+- `INTENT.md` already carries **Delegation** ("a plan's decomposition into child work in any
+  department, with order" — `execution.work.Work.decide`) and the work-graph holarchy ("Work — a
+  node in the holarchy"). What was actually missing from the law docs is the word
+  **orchestration** (0 hits across all four) and **multi-agent** (0 hits), which is a vocabulary
+  gap, not an architecture gap.
+
+So the corrected work is **not eight new chapters** — that would have duplicated four law docs and
+created exactly the drift the repo's own `register` pack exists to catch ("a register whose rows lie
+corrupts every plan built on it"). It is:
+
+1. `docs/architecture/README.md` — a **map**, not a duplicate: which doc owns which question, and the
+   mermaid whole-system diagram spanning all layers, which no single law doc carries today.
+2. `docs/architecture/against-a-task-runner.md` — the portfolio's persuasive artifact, the comparison
+   the README only gestures at.
+3. `docs/architecture/the-learning-organization.md` — the end-to-end loop as one narrative with its
+   six loops named as one system.
+4. `docs/architecture/security-and-trust-boundary.md` — the trust boundary as one design argument
+   (why off-by-default, what each of the four defects costs), referencing BYLAWS §11 for the config.
+
+The vocabulary fix stays (B3), but it is now two rows — **orchestration** and **multi-agent** —
+bound to existing mechanisms rather than a wholesale section rewrite.
+
+**The lesson recorded rather than smoothed over:** the plan's own §B0 measured "multi-agent 0,
+orchestration 0" and concluded the architecture was undocumented. The right instrument was a
+per-term sweep across the four law docs *plus* ARCHITECTURE, not a vocabulary count that treated
+absence of a word as absence of a mechanism. A newer, thinner record (2026-10-25) states the rule
+this broke: *"a claim about live state must name its home."* The documentation home was never named.

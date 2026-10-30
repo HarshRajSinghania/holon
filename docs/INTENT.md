@@ -36,6 +36,7 @@ six roles, a profile of slots, a pipeline, tailored skills, and an autonomy poli
 | Employee | persistent identity: roles, job description, manager, memory `emp:<id>`, record | `holon hr hire`, `holon emp card` |
 | Role | one of six functions, each performing pipeline stages | `core.vocab.ROLE_STAGES` |
 | Work | a node in the holarchy: a pipeline of stages and/or child work | `execution.work.Work.add_work` |
+| Orchestration | the multi-agent loop above turning one outcome into claimed, leased, judged and learned work: decide, claim, dispatch, judge, consolidate | `execution.service.Kernel.dispatch`, `execution.work.Work.claim`, `execution.bylaws.stages_for` |
 | Delegation | a plan's decomposition into child work in any department, with order | `execution.work.Work.decide` |
 | Interaction | messages and cross-department requests that become work there | `holon msg send`, `holon msg request` |
 | Review | an employee's record computed from evidence, not narrative | `holon hr review` |

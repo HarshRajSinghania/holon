@@ -145,6 +145,14 @@ the kernel". Re-measured: 23 tools, mount intentionally absent, defect is covera
 keep the MCP mount alongside. This is the one finding I would put in front of the owner, because 35
 tools is a product decision, not a mechanical one.
 
+> **Corrected 2026-10-30, after closing S6:** that verdict was wrong, and wrong in the direction that
+> costs work. The 23-tool count was measured from the **installed binary**, which embeds the vendored
+> roster at *build* time — so it carried whatever roster was on disk when it was last compiled, which
+> predates both this audit and the fix. Regenerating the roster and rebuilding changed the same probe
+> from 23 to **58**, and every one of the 18 knowledge tools named above registers and answers. There
+> was never a product decision here: the finding was real, the cause was a stale build, and the
+> framing above would have spent an owner's decision on a `cargo build`.
+
 ## S5. Four of five live incidents never closed when their cause was fixed
 
 Measured on the live instance:

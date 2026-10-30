@@ -311,7 +311,7 @@ three times over. Executed on the kernel (this repo) and the runtime repository 
 | **S6** (vendor drift) | **closed** `fd854aeb` | regenerated **after** S1, as the plan requires: 0 removed / 35 added, matching the audit's counts exactly, and the 3 schema drifts resolved. |
 | **S3** (events fixture) | **closed** `fd854aeb` | the staffing gate refused the fixture's approval correctly; one hire line staffs the fixture. The kernel needed no change. |
 | **S8** (the observer's read surface) | **open** | needs a decision on which side owns the surface (the kernel is the authority `policy.json` enforces), so it is not mechanical. |
-| **S4** (35 tools unreachable) | **open** | a product decision, not a defect. |
+| **S4** (35 tools unreachable) | **closed, and re-diagnosed** | the audit called it *"a product decision, not a mechanical one"* — measuring it after S6 found the opposite: the 23-tool count came from a **stale compiled binary** that embeds the roster at build time. Rebuild and the same probe answers **58**, including every one of the 18 knowledge tools the audit named by hand. |
 | **D1/D2** (dead code, a second `.bak`) | **open** | safe and small, and still decoupled from everything above. |
 
 **What the execution changed about the plan's own claims.** Two measurements corrected the audit's

@@ -2728,8 +2728,52 @@ class Kernel:
                 if check in failing:
                     continue
                 self.work._set(row["id"], "done", note=f"doctor reports {check} clean again")
+                # K-2 (G3, 2026-10-30): this close is the kernel's own, so it must leave the
+                # board something that re-checks it -- a registered guard, or a recorded
+                # waiver that says why there is none. Without one, doctor's `incident.guard`
+                # warns on every close the sweep performs (measured live: 5 `done` incidents,
+                # 0 guards, so every automated close produced a warning the Chair must clear
+                # by hand, and a warning nobody can clear from a command is one they stop
+                # reading). A guard names a `[checks.class]` entry the Chair authored, and
+                # the kernel must not invent one; but for a DOCTOR incident the re-check
+                # genuinely exists -- the check that just reported clean. So the sweep
+                # registers the doctor check itself, by name, and `_guard_triggers` runs it
+                # on the heartbeat exactly as it runs a Chair's check: a failure reopens
+                # the incident, which is the promise K-2 always made.
+                guard = self._doctor_guard_exists(check)
+                if guard is not None:
+                    self.wconn.execute("INSERT OR REPLACE INTO guards VALUES (?,?,?,?,?)",
+                                       (row["id"], f"doctor reports {check}", guard, 300, now()))
+                    self.work._event("work", row["id"], None, None,
+                                     f"guard registered: doctor reports {check} ({guard})")
+                else:
+                    # No check class is declared for this check. Record the waiver rather than
+                    # leaving the warning: the sweep owns this close, so it must say why the
+                    # close carries no guard, in the settings key doctor.read and the Chair's
+                    # `incident waive` both read. `_put_raw` because the sweep is already inside
+                    # `write_txn`, and `_put` opens its own -- "cannot start a transaction within
+                    # a transaction" is how the first draft of this fix was caught.
+                    self.auth._put_raw(f"incident:{row['id']}:waived",
+                                       f"the doctor check `{check}` has no `[checks.class]` entry, "
+                                       f"so no command-decidable guard can be registered for it; "
+                                       f"`holon doctor` itself is the re-check, and this close was "
+                                       f"made by the kernel's incident sweep on seeing it clean"[:400])
                 out.append({"incident": row["id"], "title": row["title"], "closed": True})
         return out
+
+    def _doctor_guard_exists(self, check: str) -> str | None:
+        """G3: the doctor check's own `[checks.class]` entry, if the Chair declared one. A guard's
+        `cmd` is a check-class NAME, not a shell command -- `_guard_triggers` resolves it through
+        `[checks.class]` -- so returning a doctor check's name is only honest when that name is
+        a declared class. Otherwise None, and the sweep records a waiver instead of inventing a
+        guard that would fail as "[checks.class.X] no longer exists"."""
+        classes = (self.config.get("checks") or {}).get("class") or {}
+        if check in classes:
+            return check
+        # A declared doctor-check guard: the Chair can author `[checks.class.doctor-<check>]`
+        # for the checks that carry a command. We do not create it here -- this returns only
+        # what exists.
+        return None
 
     def _incident_open(self, title: str) -> bool:
         return bool(self.wconn.execute("SELECT 1 FROM tasks WHERE stage IS NULL AND title=? AND status IN "

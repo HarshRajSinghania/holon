@@ -383,6 +383,58 @@ class GuardLoop(Loops):
         self.assertEqual([f for f in doctor.run(self.k) if f["check"] == "incident.guard"], [],
                          "a recorded waiver is a decision, not an omission")
 
+    def _open_doctor_incident(self, check):
+        """An incident exactly as `_doctor` opens it: source='kernel', a title the sweep's own
+        LIKE clause matches. Returned so the guard below can close it through the real path."""
+        return self.k._incident(f"Incident: doctor reports {check}", f"doctor reports {check}")
+
+    def test_the_sweeps_own_close_never_leaves_a_warning_behind(self):
+        """G3, 2026-10-30. Found by measuring the live instance rather than reading the fix: the
+        S5 sweep (`_resolve_incidents`) closes a recovered doctor incident, and K-2's
+        `incident.guard` check then warns on it -- measured live, 5 `done` incidents and 0 guards,
+        so every close the kernel had ever made automatically produced a warning the Chair must
+        clear by hand. A warning nobody can clear from a command is one they stop reading, which
+        is how the board's next real warning gets missed.
+
+        So the sweep's own close must leave either a guard or a recorded waiver, and this guard
+        asserts BOTH branches because the kernel cannot invent a `[checks.class]` entry: with a
+        declared class the sweep registers the doctor check itself (a failure reopens the
+        incident, which is K-2's promise), and without one it records a waiver that names the
+        check and says why no command can re-check it.
+        """
+        self.k.config["checks"]["class"]["drift.example"] = {"commands": ["true"]}
+        for check in ("drift.example", "nowake.example"):
+            self._open_doctor_incident(check)
+        # the sweep closes both, because neither is failing right now
+        closed = self.k._resolve_incidents(set())
+        self.assertEqual(len(closed), 2, "the sweep closed both recovered incidents")
+        findings = [f for f in doctor.run(self.k) if f["check"] == "incident.guard"]
+        self.assertEqual(findings, [],
+                         "the sweep's own close left an `incident.guard` warning: the board now "
+                         "says the fix left nothing that re-checks it, and the kernel is the "
+                         "one that closed it")
+        # the declared class became a real guard, and the undeclared one a real waiver: the
+        # two are different acts and neither is a way of hiding the other
+        guards = {r["check"] for r in self.k.wconn.execute('SELECT "check" FROM guards')}
+        self.assertIn("drift.example", guards,
+                      "a doctor check with a declared [checks.class] was closed without "
+                      "registering it as the guard, though the re-check genuinely exists")
+        self.assertNotIn("nowake.example", guards,
+                         "the sweep registered a guard for a check with no declared class: "
+                         "nothing can run it, so it fails as a dead guard on the next heartbeat")
+        waived = dict(self.k.wconn.execute("SELECT key, value FROM settings WHERE key LIKE '%:waived'")
+                        .fetchall())
+        self.assertTrue(any("nowake.example" in v for v in waived.values()),
+                        "the undeclared check was closed with neither a guard nor a waiver naming it")
+        # and the registered guard is alive: it runs on the heartbeat and a failure reopens
+        # the very incident it closed -- the mechanism, not the note, is what holds
+        self.k.config["checks"]["class"]["drift.example"] = {"commands": ["false"]}
+        reopened = self.k._guard_triggers()
+        self.assertTrue(any("drift.example" in (self.k.work.get(o["incident"])["title"] or "")
+                            for o in reopened),
+                        "the guard the sweep registered does not reopen its own incident when "
+                        "the check fails again: K-2's promise was not kept")
+
 
 class SetDriver(Loops):
     """When a harness is retired, the people bound to it used to be unusable: the kernel had no

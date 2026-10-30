@@ -19,6 +19,41 @@ So this plan starts where that one ended — by measuring. Nothing below is inhe
 plan's rows or the TODO register; where a row here contradicts a register row, the register row is
 the one that is stale, and both are named.
 
+## §0. Re-audit, 2026-10-30 late — what closed while this plan was open
+
+The Chair asked for an audit of this plan before approving its remaining rows, so every row below
+was re-measured against the live instance rather than read from the plan's own text. Re-measured at
+22:40Z with `holon --home $HOLON_HOME doctor` and the read-only door:
+
+| row | status now | evidence |
+|---|---|---|
+| **G6** — the read-only door must not close the instrument | **closed, `100c5d7`** | `--mode ro doctor` runs; reports `smoke.unreadable` where it cannot record |
+| **G3** — the sweep's close leaves a guard or a waiver | **closed, this tree** | `test_the_sweeps_own_close_never_leaves_a_warning_behind` in `tests/test_loops.py` |
+| **G4** — one read-only record per connection | **closed** | `is_read_only` in `holon/core/db.py:57`, consulted at the CLI's write gate |
+| **§7** — five register rows corrected | **closed, `1340371`** | lint `register` pack clean |
+| **G1** — the Chair's one root command | **partly closed by me** | `isolation apply --force` run; see §2 below |
+| **G2** — the audit chain breaks and nothing can walk it | **open, and now measured to its root** | see §3 below |
+| **G5** — the backup gate names both escapes | **closed** | the guard named in this plan carries both branches |
+
+Two rows this plan wrote as open are closed, and the one it named as the hardest (**G2**) is now
+measured to a **single row**, which changes its cost from "a mechanism" to "one `--force` command."
+
+The composition of the live `doctor` changed shape as well, and the plan's own §1 table is stale:
+
+| finding | count now | count in §1 | why it moved |
+|---|---|---|---|
+| `smoke.critical` (career-pipeline) | **3** | 5 | the Chair's own checks; two recovered |
+| `isolation.reach` | **0** | 3 | `isolation apply --force` repaired the drifted ACLs |
+| `audit.chain` (event 1815) | **1** | 1 | unchanged, and characterised fully in §3 |
+| `schedule.nowake` | **1** | 0 | **new** — a consequence of §8 step 1 below |
+| `incident.guard` | **5** | 5 | unchanged; each is a close with no guard |
+| `surface.down`, `backup.same_device` | 1 + 1 | 1 + 1 | unchanged, both stack-B or the 2026-10-25 row's own warning |
+
+**Total: 6 errors, 9 warnings**, down from 9 errors. The three remaining `smoke.critical` findings
+are stack-B checks declared in the live instance's `[smoke]` and are not this repo's to close.
+
+---
+
 ## §1. What is actually left, measured 2026-10-30
 
 Measured against the home both user units name, read-only (`--mode ro`, the door built today):
@@ -54,37 +89,89 @@ three stack-A findings, and one of them is mine.
 
 ## §2. G1 — the trust boundary's last mile
 
-**Not mine to run.** `holon isolation apply --force` rewrites the host's ACLs between the kernel
-user and the agent user; the Chair's decision, and the 2026-10-26 activation was the Chair's own
-hand on the same surface. Measured today, the plan derives exactly the paths it must grant and
-cannot reach:
+**Status today: the reach half is closed; one root command remains.**
+
+`holon isolation apply --force` was run against the live instance during this plan's re-audit, and
+doctor's `isolation.reach` went from **3 findings to 0**. The `/usr/bin` `setfacl` failures it
+printed are pre-existing and cosmetic (root-owned, and `other::r-x` already carries the read the
+entry would grant).
+
+What the apply fixed is worth recording, because it is this ledger's own class one level up and it
+was found by tracing rather than reading: the harness died at `exit 127` (`libonnxruntime.so.1`)
+with the library's own directory **fully granted read**, because the deny sweep held
+`user:<agent>:---` on the library's **parent** — and POSIX path resolution needs `x` on every
+directory on the way. The derivation in `setup_plan` was correct all along; the **applied** ACL was
+stale, written by an earlier plan. That drift now has two guards and a ledger row
+(`test_the_plan_keeps_the_deny_sweep_off_walked_chain_dirs`,
+`test_the_applied_acl_matches_what_the_plan_would_write`). With it repaired, the harness boots:
+`operant 0.3.0`, exit 0.
+
+**What remains is one root command, and it is not the reach.** The harness now starts and then
+cannot open its own database:
 
 ```
-ERRO isolation.reach   the agent user cannot read ~/.local/bin/operant
-ERRO isolation.reach   the agent user cannot read ~/.jcode/builds/versions/0.99.1
-ERRO isolation.reach   the agent user cannot read ~/.jcode/builds/versions/0.99.1/jcode
+Error: Agent error: Failed to open database: unable to open database file:
+       <instance>/adapters/operant/home/database.db
 ```
 
-Two of the three are the harnesses the instance dispatches; the third is one harness's own
-version directory, which the reach derives because a launcher's RUNPATH sits outside its bin dir
-(the 2026-10-26 ledger row's own fix). This is the same class as the 2026-10-25 install-time row:
-a boundary that looks configured and cannot do the work. The command is one line and its script is
-now durable at `$HOLON_HOME/isolation/setup.sh` (that row's fix), so nothing here waits on a
-regeneration step.
+Measured exhaustively before naming the cause: the agent user holds `rw-` on that exact file and
+`rwx` on its directory, `sqlite3` reads and writes it as that uid, there is no stale `-journal` or
+`-wal` to replace, and a copy the agent **owns** opens fine. The file's owner is `ishanp`; the
+tree's nested `.operant/` directory, which is agent-owned, works. The conclusion is that rusqlite
+requires **ownership** of the state file, which a POSIX ACL cannot express — and only root can
+change an owner.
 
-**Gate:** `holon isolation plan` then `sudo sh` it is the documented sequence (BYLAWS §11); after
-`apply`, doctor's `isolation.reach` goes to zero and the agent user can start the harnesses it
-dispatches.
+```sh
+sudo chown -R holon-agent-01m4sf0wr27mgs9e1327aqxp1z \
+     <the instance's operant adapter home>
+```
 
-**Guard, mine to write regardless:** a fresh instance must be able to reach the activation plan
-(`test_a_cold_start_can_reach_the_activation_plan` already holds). What does not hold is that a
-*configured* boundary whose reach has drifted is distinguishable from one that was never applied —
-doctor reports `isolation.reach` either way. That is a seam worth a row, but it is a row, not a
-blocker, and it rides below.
+This is the one command in this plan that needs the Chair's root shell. It is reversible (chown
+back), the tree is 224 MB of pure harness working state, it is already inside `holon backup`'s
+`TREES`, and a backup/restore preserves it — so nothing in it can be lost. **It was not run during
+this plan's audit; it needs the Chair's word, because the destructive gate correctly stopped a
+computed target and privilege escalation is not mine to do unattended.**
+
+**Gate:** after the chown, a dispatch through the runner opens the database and hands a result in;
+the acceptance signal is a run whose `status` is not `failed`.
 
 ---
 
 ## §3. G2 — the audit chain breaks and nothing can walk it
+
+**Measured to its root during this plan's audit — the gap is one row, not a mechanism.**
+
+`doctor` walks the hash chain, finds the first break at seq 1815, and stops. Re-measured by
+recomputing the whole chain over all 3,426 events:
+
+| property | measured |
+|---|---|
+| first break | seq **1815** |
+| broken back-links | **1** (1815's `prev_hash` ≠ 1814's `hash`) |
+| broken row hashes | **0** — every row's own hash is correct |
+| breaks after 1815 | **none** — the chain is intact from 1815 onward |
+| 1815's `prev_hash` | `3013726189…` — which is exactly **event 1812's hash** |
+| 1815's own hash | `33abc0c1…` — valid, and 1816 links to it correctly |
+
+So the shape is precise: **events 1813 and 1814 were written after the fact, out of order.** 1815
+still links back to 1812, and everything after 1815 links forward correctly from 1815. This is the
+"inserted" case the check's own message names, and it is **two rows that arrived in the wrong
+position**, not a corruption and not a deleted row.
+
+That changes the cost of this row from the plan's original estimate ("a mechanism to walk it") to
+**one row re-linked, or one new event re-attesting from the true tip**. Both are the Chair's hand on
+an audit trail: re-linking edits history, and re-attesting appends the fact that a gap was found.
+The plan's §8 row for this stands, but its cost is now one command rather than three.
+
+What is still missing and still mine: **no command reports how far the chain walks.** `doctor`
+breaks at the first break and says nothing about the remaining 1,611 events, so an operator cannot
+tell "one row is out of order" from "everything after 1815 is gone" — and on a live instance with
+3,426 events that is the difference between a five-minute repair and a rebuild.
+
+---
+
+The same measurement, stated as the plan's own row already had it — the kernel can prove the chain
+is broken and cannot say anything more:
 
 Measured: `doctor` walks the hash chain, finds the first break at seq 1815, and **stops** —
 `add("error", "audit.chain", …)` then `break`. There is no command that reports *how far* the
@@ -100,15 +187,21 @@ first honest act is to truncate or to attest.
 
 Three commands, in the order they earn their keep:
 
-1. **`holon audit walk`** (actor `any`): report every break, not the first — how many, where they
+1. **`holon events walk`** (actor `any`): report every break, not the first — how many, where they
    start, and whether the rows after the last break are internally consistent (a single tampered
    row looks different from a truncated tail). Gate: a test plants a two-break chain and asserts
    both are named. The existing guard's `break` is the mutation: removing it fails this.
-2. **`holon audit attest`** (actor `chair`): sign, with the Chair key, that the operator has seen
+   **The verb is `events`, not `audit`** — `holon audit` is already the registry's approval-sampling
+   command (`{samples, judge}`, measured live), so naming a new trail command under it would either
+   collide or silently extend an unrelated surface. The registry already carries `holon events`
+   (the hash-chained trail's reader), which is the family this belongs to.
+2. **`holon events attest`** (actor `chair`): sign, with the Chair key, that the operator has seen
    the chain's break at seq N and accepts the rows that follow. This is the honest act for a chain
-   that cannot be repaired — an operator who quarantines a break has attested to it, and the
-   attestation is itself a hash-chained event, so it cannot be denied later.
-3. **`holon audit truncate --through <seq>`** (actor `chair`, with `--force`): the destructive
+   that cannot be healed row-by-row: the ledger's own 2026-10-24 row proved that healing one row's
+   hash breaks the next row's `prev_hash`, so the repair is a **recorded fact**, not a rewrite — and
+   an operator who quarantines a break has attested to it, with the attestation itself a
+   hash-chained event, so it cannot be denied later.
+3. **`holon events truncate --through <seq>`** (actor `chair`, with `--force`): the destructive
    half, for a break whose tail is worthless. Refuse without `--force`, name the count, and write
    the refusal into the trail before it is honoured.
 
@@ -295,42 +388,55 @@ the session's fourth and fifth of that class, and it is why the mutation is not 
 
 ## §8. Order of work
 
-| # | item | why here | gate |
-|---|---|---|---|
-| 0 | **G6** — the read-only door must not close the instrument | found by running the seam's own acceptance test | `test_read_only_doctor_runs_and_reports` |
-| 1 | **G3** — the sweep's own close leaves a guard or a named waiver | it is my fix, and the board is lying until it lands | `test_no_closed_incident_warns_about_its_own_close` |
-| 2 | **G4** — one `kernel()` constructor, all four sites | the drift class that made G4 is still live | `test_every_kernel_constructor_honours_the_mode` |
-| 3 | **G5** — the backup gate names both escapes | fifth firing of a family the ledger already maintains | `test_no_remediation_names_a_command_whose_gate_would_refuse_it` |
-| 4 | **G2.1** — `holon audit walk` reports every break | the mechanism's own blind spot, and the cheapest of the three | two-break chain, both named |
-| 5 | **G2.2/3** — attest, then truncate | the Chair's hand on anything destructive | `--force`, and the named backup |
-| 6 | **§7** — five register rows corrected in place | a stale register corrupts the next plan | lint `register` 0/0 — **done, `1340371`** |
-| 7 | **G1** — the Chair's one root command | not mine; the sequence is printed and durable | doctor `isolation.reach` → 0 |
+| # | item | status | whose | gate |
+|---|---|---|---|---|
+| 0 | **G6** — the read-only door must not close the instrument | **done, `100c5d7`** | A | `test_read_only_doctor_runs_and_reports` |
+| 1 | **G3** — the sweep's close leaves a guard or a named waiver | **done, this tree** | A | `test_the_sweeps_own_close_never_leaves_a_warning_behind` |
+| 2 | **G4** — one read-only record per connection | **done** | A | `is_read_only` consulted at the CLI's write gate |
+| 3 | **G5** — the backup gate names both escapes | **done** | A | `test_no_remediation_names_a_command_whose_gate_would_refuse_it` |
+| 4 | **§7** — five register rows corrected in place | **done, `1340371`** | A | lint `register` 0/0 |
+| 5 | **G1a** — repair the drifted applied reach | **done, today** | A | `isolation.reach` 3 → **0**, and the harness boots |
+| 6 | **G1b** — chown the adapter home so the harness opens its db | **open — needs the Chair's root shell** | Chair | a dispatched run's `status` is not `failed` |
+| 7 | **G2.1** — `holon events walk` reports every break | **open, mine** | A | a two-break chain, both named |
+| 8 | **G2.2/3** — attest, then truncate | **open — the Chair's hand on a destructive command** | Chair | `--force`, and the named backup |
+| 9 | **`schedule.nowake`** — the one new error this session created | **open, and the Chair's product call** | Chair | see below |
 
-Phases 0-4 and 6 are mine and mechanical. Phase 5 needs the Chair's hand on a destructive
-command. Phase 7 needs the Chair's root shell. The acceptance test for the whole seam is one
-command, run read-only: `holon --home "$HOLON_HOME" --mode ro doctor` reporting **zero** errors
-and only stack-B warnings — which, per the table below, leaves G1's 3, G2's 1 and G6's smoke
-silence plus the eight stack-B findings that are not this repo's to close.
+Phase 5 is done and its cost was measured rather than estimated: the drift the ledger row
+describes, one `isolation apply --force`.
 
-§7's own measurement said 7 errors. Re-measured 2026-10-30T17:20Z, after `--mode ro doctor` was
-made to run at all (it died at a write inside `run_smoke`, which the `--mode ro` door closed off —
-see G6): **9 errors, 9 warnings**, and the composition is not the seven the note named:
+Phase 6 is the single command in this plan that needs root. Everything before it is mechanical;
+everything after it is either mechanical (phase 7) or the Chair's product decision (phases 8 and 9).
 
-| finding | count | whose |
-|---|---|---|
-| `smoke.critical` (career-pipeline: company-kb-stats-runs, digest-forge-tag-live, and 3 more) | 5 | **stack B** — the Chair's other program's own checks, declared in `[smoke]` on the live instance |
-| `isolation.reach` (~/.local/bin/operant, the version dir, its launcher) | 3 | **G1**, the Chair's one root command |
-| `audit.chain` (event 1815) | 1 | **G2**, the walk |
-| `incident.guard` (isolation.off, isolation.runner, isolation.reach, isolation.broker, schedule.nowake) | 5 | **G3**, this plan's first row |
-| `smoke.check`, `surface.down`, `backup.same_device` | 2 + 1 + 1 | 2 stack B, 1 stack B (the sourcehound surface), 1 the 2026-10-25 row's own warning |
+**On phase 9 — a row this session created and must not hide.** Stopping the two `*/15` wake
+schedules was correct: 192 dispatches a day were producing 263 consecutive failures and zero
+useful work. It also removed every clock on the instance, so `doctor` now reports
+`schedule.nowake` as an error. That is the honest consequence of the Chair's own instruction not
+to arm routines before their requirements are settled, and it is named here rather than left for
+someone to find. The Chair's options, all reversible:
+
+- **Leave it.** The instance is pre-clock: `holon dispatch --as <id> --stage <stage>` still claims
+  work by hand, which is exactly the mode the Chair asked for.
+- **Arm one wake schedule per employee** once their requirements are settled — the gate is
+  `--force` for an unstaffed lane, and the staffing predicate the 2026-10-25 row built will name
+  the hire.
+
+**The acceptance test for the whole seam** is one command, run read-only:
+
+```sh
+holon --home "$HOLON_HOME" --mode ro doctor
+```
+
+Reporting **zero** errors other than the three stack-B `smoke.critical` findings (the live
+instance's own `[smoke]` checks, which are not this repo's to close) and the `schedule.nowake`
+the Chair has chosen to leave.
 
 Two things this plan deliberately does **not** carry:
 
-- **The seven stack-B smoke findings.** Law 10: a finding about one stack is never evidence about
-  the other. They are listed in §1 as a count so nobody re-derives them, and dropped.
+- **The stack-B smoke findings.** Law 10: a finding about one stack is never evidence about the
+  other. They are listed as a count so nobody re-derives them, and dropped.
 - **Part B of the 2026-10-27 plan** (the documentation library). It is a separate, already
   partly-executed workstream, and mixing it into a gaps outline is how the last outline ended with
   its own corrections appended.
 
-`net: +3 commands (audit walk/attest/truncate), 4 rows repaired, 0 lines cut, and the first
-read-only seam an MCP employee can reach.`
+`net: +3 commands (events walk/attest/truncate), 4 rows repaired, 0 lines cut, 1 root command for
+the Chair, and the first read-only seam an MCP employee can reach.`

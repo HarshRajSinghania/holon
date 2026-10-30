@@ -1,5 +1,6 @@
 """`holon mcp`: the organization as MCP tools, authenticated by the environment the harness passes on."""
 
+import ast
 import contextlib
 import io
 import json
@@ -8,6 +9,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from holon import mcp
 from holon.cli import REGISTRY, _positional_flags
@@ -529,3 +531,86 @@ class OneFence(unittest.TestCase):
             self.assertTrue(needed,
                              f"`{n}` never reached the gate with a bare argv yet declares no "
                              f"required argument: the fence was not tested for it")
+
+
+class KernelConstruction(unittest.TestCase):
+    """G4, 2026-10-30: every `Kernel(` construction site says which mode it is in.
+
+    Found by tracing `--mode ro` back through its callers: the door was threaded through the
+    CLI's one construction site, and three others build a Kernel of their own -- and the one
+    that matters most was opening **read-write as the Chair** to answer a question about which
+    stage a run token's run is at. A read that opens the widest principal with the write door
+    open is the 2026-10-24 audit row's defect one transport away, and it is invisible from the
+    CLI because the CLI is not the one doing it.
+
+    The rule is stated over the AST rather than enumerated, because a list of the sites is
+    exactly the hand-maintained artefact the ledger's own entropy rows keep finding: the broker
+    gate's `BROKER_EXTRA`, the MCP fence's hand-listed tuple, the allowlist that drifted from
+    the actor class. A list needs updating every time someone adds a site; a rule does not.
+
+    A site is in violation when it passes NEITHER `readonly=` NOR `actor=`. Passing neither is
+    the signature of a construction that never considered either question -- the default is
+    read-write chair, which is the widest thing the distribution can hand out. Asserting the
+    keywords are present is not asserting a value: the values are the caller's to choose, and
+    a conformance harness that dispatches real work is right to take read-write. What the guard
+    can say is that the caller decided.
+    """
+
+    def test_every_kernel_construction_says_its_mode_and_its_actor(self):
+        offenders = []
+        for p in sorted((REPO / "holon").rglob("*.py")):
+            try:
+                tree = ast.parse(p.read_text())
+            except SyntaxError:  # pragma: no cover
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+                if name != "Kernel":
+                    continue
+                keywords = {kw.arg for kw in node.keywords if kw.arg}
+                if "readonly" not in keywords or "actor" not in keywords:
+                    offenders.append(f"{p.relative_to(REPO)}:{node.lineno}")
+        self.assertEqual(offenders, [],
+                         "these `Kernel(` sites pass neither `readonly=` nor `actor=`, so they "
+                         "silently take read-write AS THE CHAIR -- the widest principal and the "
+                         "write door, for code that may only mean to read: " + ", ".join(offenders))
+
+    def test_the_mcp_read_that_resolves_a_run_token_is_anonymous_and_read_only(self):
+        """The behavioural half, because an AST guard proves a keyword was typed and not that
+        the mode works. Two things are asserted that the AST guard cannot see, and the second
+        is the one this guard's own draft got wrong: with the keywords present but their values
+        reverted to the widest (`actor="chair", readonly=False`) -- a mutation that leaves the
+        AST guard perfectly happy -- only a behavioural check notices. So the assertion is on
+        the mode itself, not on a file-mtime diff that a snapshot taken at the wrong time
+        cannot see."""
+        import tempfile
+        from holon.core.paths import Home
+        from holon.execution.service import Kernel
+        with tempfile.TemporaryDirectory() as d:
+            home = Home(Path(d) / "home")
+            Kernel(home).close()                 # a well-formed instance, then closed
+            seen = {}
+            real_init = Kernel.__init__
+
+            def spy(self, h, *a, **kw):
+                seen["readonly"] = kw.get("readonly", False)
+                seen["actor"] = kw.get("actor")
+                return real_init(self, h, *a, **kw)
+
+            Kernel.__init__ = spy
+            try:
+                with mock.patch.dict(os.environ, {"HOLON_RUN_TOKEN": "not-a-token",
+                                                  "HOLON_HOME": str(home.root)}):
+                    self.assertIsNone(mcp._run_stage(),
+                                      "an unreal token resolves no run, and the helper must say "
+                                      "so rather than answer as the Chair")
+            finally:
+                Kernel.__init__ = real_init
+            self.assertEqual(seen.get("readonly"), True,
+                             "the MCP stage lookup opened the kernel read-WRITE: a helper that "
+                             "reads one run's stage must not hold the write door")
+            self.assertEqual(seen.get("actor"), "anonymous",
+                             "the MCP stage lookup opened as the Chair: a run token is not the "
+                             "Chair, so the constructor's principal must be the narrow one")

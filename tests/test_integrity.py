@@ -463,7 +463,17 @@ class Lint(KernelCase):
         was a shell script the plan wrote — invisible to the content rules by suffix alone."""
         home = "/home" + "/" + "oper" + "ator"
         leaky = "Home(root=PosixPath('" + home + "/scratch/holon-test-ab12cd')/home"
-        leak = Path(holon_cli.__file__).parent.parent / leaky / "isolation" / "setup.sh"
+        # The pack scans DIST (the distribution root), so the probe MUST live inside the
+        # distribution to be seen -- but `leaky` is a relative path, and joining a relative
+        # path resolves it against the CWD, which for a suite run from the repository root
+        # is the repository. Measured 2026-10-30: that planted the very
+        # `Home(root=PosixPath('/home/...')/...` tree this guard exists to catch, at the repo
+        # root, created by the guard -- the 2026-10-24 row's own lesson (a fixture that reads
+        # or writes a tree must resolve by a path that does not depend on where the suite ran),
+        # hit by the guard that records it. Anchored to DIST explicitly, and to a name the
+        # test cleans up after itself.
+        probe_root = Path(lint.DIST) / ".probe-scrub-path"
+        leak = probe_root / leaky / "isolation" / "setup.sh"
         try:
             leak.parent.mkdir(parents=True, exist_ok=True)
             leak.write_text("#!/bin/sh\n")
@@ -476,7 +486,14 @@ class Lint(KernelCase):
                           "the finding must name the file whose path is the leak")
         finally:
             import shutil
-            shutil.rmtree(leak.parents[2], ignore_errors=True)
+            shutil.rmtree(probe_root, ignore_errors=True)
+        # and the probe itself is gone now the test has finished with it: a guard that leaves
+        # its own leak-shaped tree behind has created the very thing it catches, and the next
+        # `git add -A` would track it. Checked OUTSIDE the try, because inside it the probe is
+        # still there by design.
+        self.assertFalse(probe_root.exists(),
+                         "the guard left its probe behind: the next `git add -A` tracks "
+                         "the very leak the guard exists to catch")
 
     def test_a_legitimate_path_never_fires_scrub_path(self):
         """The rule reads paths, so a false positive would rename half the repository. The

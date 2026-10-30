@@ -95,7 +95,7 @@ def run_supervisor(k, supervisor_cmd: str, clauses: list[str] | None = None) -> 
         f'cwd = "{{workdir}}"\ntimeout_s = 8\nresult = "file"\n')
     home.config_file.write_text('[pipeline]\nresearch = "never"\nshape = "never"\nretro = "never"\n'
                                 "[grading]\nnovelty_min_verified = 0\n")
-    s = Kernel(home)
+    s = Kernel(home, actor="chair", readonly=False)   # G4: this conformance driver dispatches real work
     old_lease = dict(vocab.LEASE_S)
 
     def clause(name, fn) -> None:

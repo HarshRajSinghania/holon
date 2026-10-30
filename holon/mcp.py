@@ -171,7 +171,16 @@ def _run_stage() -> str | None:
         from holon.core.paths import Home
         from holon.execution.service import Kernel
         home = Home.resolve(Path(os.environ.get("HOLON_HOME", "~/holon")))
-        k = Kernel(home)
+        # G4, 2026-10-30: this helper only reads one run's stage, and it was opening the
+        # kernel read-WRITE as the CHAIR -- the widest principal the distribution has, with
+        # the write door open, to answer a question about which stage a token's run is at.
+        # A read that opens read-write as chair is the same defect the 2026-10-24 audit row
+        # measured on the doctor: an artefact the reader never intended (a `-wal`, migration
+        # stamps) plus authority the question never needed. Both narrowed here -- `anonymous`
+        # because a run token is not the Chair, and `readonly=True` because nothing writes.
+        # `principal(token)` still resolves the token: the principal comes from the token,
+        # not from the constructor's actor.
+        k = Kernel(home, actor="anonymous", readonly=True)
         try:
             p = k.auth.principal(token)
             run = k.work.get_run(p.run_id) if p.run_id else None

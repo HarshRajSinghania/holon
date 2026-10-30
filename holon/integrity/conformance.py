@@ -81,7 +81,7 @@ def run(k, driver_name: str, workdir: str | None = None, clauses: list[str] | No
     home.config_file.write_text('[pipeline]\nresearch = "never"\nshape = "never"\nretro = "never"\n'
                                 "[grading]\nnovelty_min_verified = 0\n"
                                 "[planner]\nenforce_read_only = true\ntrust_harness_read_only = false\n")
-    s = Kernel(home)
+    s = Kernel(home, actor="chair", readonly=False)   # G4: this conformance harness dispatches real work
     try:
         def check_driver():
             refs = [p for p in ("{prompt}", "{briefing}", "{brief_md}", "{spawn}") if p in drv.command]

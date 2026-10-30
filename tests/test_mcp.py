@@ -271,7 +271,39 @@ class SubmitSchema(KernelCase):
     def _submit_tool(self):
         return next(t for t in mcp.tools() if t["name"] == "holon_submit")
 
-    def test_the_published_schema_names_the_envelopes_fields(self):
+    def test_an_employee_sees_one_copy_of_every_tool(self):
+        """S1 (2026-10-26 two-repo audit): `tools()` hard-codes `holon_whoami` and
+        `holon_submit`, then loops `agent_commands()` — which restores both over the blocklist
+        through `AGENT_ALWAYS` — so each is published twice (measured: 60 tools, 58 unique).
+
+        The harm is not the count. A client resolves a tool list by name, which is the normal
+        `{t["name"]: t for t in tools()}` pattern, and a dict keeps the LAST duplicate. The
+        derived copy — the loop's, built from argparse — carries `run_id` and `file` and **no
+        `result`**, so a client that validates against what it resolved tells a body to hand in a
+        `result` the schema it was given never named. The hand-written copy carries `result`; the
+        one that wins does not.
+
+        `AGENT_ALWAYS` is load-bearing (it is how `submit` and `whoami` reach the fence at all),
+        so the fix belongs where the duplicate is created, not in the fence."""
+        tools = mcp.tools()
+        names = [t["name"] for t in tools]
+        dupes = {n for n in names if names.count(n) > 1}
+        self.assertEqual(dupes, set(), f"no tool is published twice: {sorted(dupes)}")
+
+    def test_the_tool_a_dict_resolving_client_gets_carries_result(self):
+        """The clause the `next(...)` helper above cannot see. That helper takes the FIRST copy,
+        which is the hand-written one that carries `result` — so the schema tests below pass while
+        the copy a real client resolves is the argparse-derived one that does not.
+
+        This resolves the list the way a client does and asserts against what survives."""
+        resolved = {t["name"]: t for t in mcp.tools()}
+        self.assertIn("holon_submit", resolved)
+        props = resolved["holon_submit"]["inputSchema"]["properties"]
+        self.assertIn("result", props,
+                      "a client that resolves by name must be given `result`, not left to invent it")
+        self.assertIn("run_id", props)
+
+    def test_published_schema_names_the_envelopes_fields(self):
         schema = self._submit_tool()["inputSchema"]["properties"]["result"]
         props = schema.get("properties") or {}
         self.assertTrue(props, "the client is told the field types, not left to guess")

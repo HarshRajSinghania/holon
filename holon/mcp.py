@@ -194,7 +194,19 @@ def tools() -> list[dict]:
          "inputSchema": {"type": "object", "required": ["result"], "properties": {
              "result": _result_schema(), "run_id": {"type": "string", "description": "default: the run your token belongs to"}}}},
     ]
+    # `whoami` and `submit` are in that hand-written list *and* in `agent_commands()` (AGENT_ALWAYS
+    # restores them over the blocklist, which is how they reach the fence at all), so the loop below
+    # would emit each a second time from argparse. A client resolves a tool list by name and a dict
+    # keeps the LAST duplicate, so the argparse copy — `run_id` and `file`, no `result` — was what
+    # every dict-resolving client was given: a body told to hand in a `result` the schema it
+    # validated against never named. The emission is deduped here, at the writer, rather than by
+    # removing either command from the fence.
+    emitted = {t["name"] for t in out}
     for p in agent_commands():
+        name = _tool_name(p)
+        if name in emitted:
+            continue
+        emitted.add(name)
         c = by_path[" ".join(p)]
         props, required = {}, []
         for a, kw in c.args:

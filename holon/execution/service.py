@@ -2200,20 +2200,105 @@ class Kernel:
         return out
 
     # ── telling the Chair: one message per heartbeat about what newly needs them ──
+
+    @staticmethod
+    def _cadence(cron: str | None) -> str:
+        """How often a routine fires, in words a reader can act on.
+
+        The Chair is authorising an unattended job that runs forever, so the cadence is the fact
+        that decides whether it is worth approving: an `0 7 * * *` job is one agent session a day,
+        and a `*/5` one is 288. Measured live 2026-10-30: the digest rendered 14 approvals that
+        all read identically, so every one had to be opened to be told apart."""
+        if not cron:
+            return "on demand (no cron: you fire it)"
+        try:
+            n = Kernel._per_day(cron)
+        except Exception:
+            return f"on schedule `{cron}`"
+        if n <= 1:
+            return "once a day"
+        if n == 24:
+            return "hourly"
+        return f"{n} times a day"
+
+    def _approve_line(self, e) -> str:
+        """One approval, rendered so the Chair can decide without opening it.
+
+        What was rendered before: `approve? Routine: X (holon plan show tsk_<27 chars>)`. Three
+        defects, each measured on the live instance:
+        1. the id is a full Crockford-base32 ULID and the command beside it does an EXACT lookup,
+           so one wrong character reads as "not found" with nothing offered to recover;
+        2. the line carried no consequence, so 14 identically-shaped approvals each needed opening;
+        3. `approve? Routine: X` reads as a question about a routine, when what is being decided
+           is a plan, whose command is `plan approve`.
+
+        The line now names what runs, how often, whether it reaches outside the organization (the
+        Chair's standing rule, and the reason a routine lands disabled), and the command that
+        decides it — `plan approve <id>`, so the line and its verb are the same thing.
+        The trailing `(verb id)` is load-bearing: `digest_rows` parses it for the button twin, and a
+        line ending in prose instead silently drops its button. Outside reach falls back to the
+        kernel's own `_external_by_name` when the classifier is off, so a routine that emails
+        applicants never reads as internal because a model was unavailable."""
+        name = (e["title"] or "").removeprefix("approve: ").removeprefix("Routine: ")
+        parent = self.wconn.execute("SELECT title, intent FROM tasks WHERE id=?", (e["parent_id"],)).fetchone()
+        plan = self.work.plan_for_approval(e["id"])
+        body = plan["output"].get("body") or {}
+        apply = body.get("apply") or {}
+        lane = body.get("lane") or "full"
+        cls = body.get("classification") or {}
+        external_p = cls.get("external_p")
+        if external_p is None:
+            # the classifier can be off, down or unsure; the outside-reach fact the Chair needs
+            # is also derivable from the protocol's own words, which `_external_by_name` already
+            # reads for an import. Fall back to it rather than rendering nothing: a routine that
+            # emails applicants must not read as internal because a model was unavailable.
+            by_name, _ = self._external_by_name(name, (parent["intent"] if parent else "") or "")
+            external_p = 1.0 if by_name else 0.0
+        outside = external_p >= float(self.config["lanes"]["external_p_max"])
+        parts = [f"approve? routine {name}, {self._cadence(apply.get('cron'))}, {lane} lane"]
+        if outside:
+            parts.append(", reaches outside the organization")
+        if apply.get("starts_disabled"):
+            parts.append(", starts disabled")
+        # the id goes LAST, in the one `(verb id)` shape `digest_rows` parses for the button
+        # twin: a line that ends in prose instead silently drops its button
+        parts.append(f" (holon plan approve {e['id']})")
+        return "".join(parts)
+
+    def _incident_line(self, e) -> str:
+        """An incident, said once and with a subject.
+
+        `incident: Incident: runs keep failing on tsk_<27 chars>` stuttered the word Incident —
+        the kind label and the title's own prefix said the same thing — and then named a bare id,
+        so the Chair could not tell what had failed without running a command. The incident's
+        own `intent` already holds the subject (which stage, how many runs, what to do), and
+        `holon task show <id>` is how to open it; the line is that, plus the id kept for the
+        button twin's sake."""
+        t = self.wconn.execute("SELECT title, intent, blocked_reason FROM tasks WHERE id=?", (e["id"],)).fetchone()
+        title = (t["title"] or "").removeprefix("Incident: ").strip() if t else ""
+        # the subject is what works keeps failing, not the incident's own id
+        subject = title or (e["title"] or "").removeprefix("Incident: ")
+        intent = ((t["intent"] if t else "") or "").split("\n")[0].strip()
+        out = f"incident: {subject}"
+        if intent:
+            out += f" — {intent[:220]}"
+        out += f" (holon task show {e['id']})"
+        return out
+
     def pending_for_chair(self, since_seq: int) -> list[str]:
         lines = []
         for e in self.wconn.execute(
-                "SELECT e.seq, e.note, t.id, t.stage, t.status, t.title, t.task_class, t.approver, t.blocked_reason "
+                "SELECT e.seq, e.note, t.id, t.parent_id, t.stage, t.status, t.title, t.task_class, t.approver, t.blocked_reason "
                 "FROM events e JOIN tasks t ON t.id=e.entity_id WHERE e.entity='task' AND e.seq>? ORDER BY e.seq",
                 (since_seq,)).fetchall():
             if e["stage"] == "approve" and e["status"] == "ready" and e["approver"] == CHAIR:
-                lines.append(f"approve? {e['title'].removeprefix('approve: ')} (holon plan show {e['id']})")
+                lines.append(self._approve_line(e))
             elif e["stage"] is None and e["status"] == "needs_input":
                 lines.append(f"question on {e['title']}: {(e['blocked_reason'] or '')[:200]} (holon task show {e['id']})")
             elif e["stage"] is None and e["status"] == "failed":
                 lines.append(f"failed: {e['title']} (holon task show {e['id']})")
             elif e["stage"] is None and e["status"] == "open" and e["task_class"] == "incident":
-                lines.append(f"incident: {e['title']}")
+                lines.append(self._incident_line(e))
             elif e["stage"] is None and (e["note"] or "").startswith("lane breach"):
                 lines.append(f"{e['note'][:200]} on {e['title']} (holon task show {e['id']})")
         down = self.wconn.execute("SELECT note FROM events WHERE entity='classifier' AND to_status='failed' AND seq>? "

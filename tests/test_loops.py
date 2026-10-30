@@ -157,7 +157,9 @@ class Notifications(KernelCase):
         self.plan(self.add("Rotate keys", dept="eng"))
         n = self.k.tick()["notified"]
         self.assertEqual((n["items"], n["sent"]), (1, True))
-        self.assertIn("approve? Rotate keys", out.read_text())
+        self.assertIn("Rotate keys", out.read_text())
+        self.assertIn("holon plan approve", out.read_text(),
+                      "the line names the command that decides it, not only a lookup")
         self.assertIsNone(self.k.tick()["notified"], "each item is announced once")
         self.k.config["notify"] = {"command": "exit 3"}
         self.plan(self.add("Second", dept="eng"))
@@ -172,7 +174,8 @@ class Notifications(KernelCase):
         self.assertEqual(self.k.tick()["notified"]["items"], 1, "a failed send does not mark the item seen")
         self.k.config["notify"] = {"command": f"printf '%s\\n---\\n' {{message}} >> {out}"}
         self.assertEqual(self.k.tick()["notified"], {"items": 1, "sent": True})
-        self.assertIn("approve? Rotate keys", out.read_text())
+        self.assertIn("Rotate keys, on demand (no cron: you fire it)", out.read_text())
+        self.assertIn("holon plan approve", out.read_text())
         self.assertIsNone(self.k.tick()["notified"], "once delivered, it is announced once")
 
 

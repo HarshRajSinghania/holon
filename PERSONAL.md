@@ -38,3 +38,21 @@ that reading measure").
 `git clone <private remote>` and check out `personal` at `501d281`; that tree plus its
 `replace holon-personal → <that tree>` in the launcher and the `[isolation]` reach restores the
 pre-migration arrangement exactly. It carries no data this repo lacks.
+
+**The local tree was purged 2026-10-30T01:01:53Z**, and the rollback now lives on disk as well as
+at the remote: `~/holon/backups/pre-purge-holon-personal-20261030/` holds `holon-personal.tar.gz`
+(the whole tree, 4,681 entries) and `holon-personal.bundle` (every ref, including the local
+`personal` HEAD `1aa2dd1`, which was **one commit ahead of `origin/personal`** and so was never
+pushed — the bundle is the only copy of it). Restoring from the bundle is `git clone
+holon-personal.bundle holon-personal`; restoring the tree is `tar -xzf holon-personal.tar.gz -C
+<parent>`.
+
+**What the purge did not lose, measured:** the legacy tree's vendored `genome.py` was canonical
+*minus* the suppression-audit work (`cfg_file`, `_reasoned_entries` — 127 diff lines, every one of
+them canonical's addition), so it held nothing unique; the peer's uncommitted `outline` module
+(`VERSION 2026.10.27-13`, `OUTLINE_ZONE`) is already in canonical's copy and in the global
+`project-genome` binary the fleet is pinned to. The live instance named only this checkout
+(`[isolation] reads`), the launcher resolved here, and the legacy tree held a *deny* ACL
+(`---`) for the agent user. The wider portfolio's references to the path are prose and historical
+records — a measured row in `scripts/measure.py`, a regression doc's citation, worklog entries —
+and no executable line anywhere ran it.

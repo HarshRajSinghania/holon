@@ -308,6 +308,18 @@ refuses, name the Chair's **two** choices explicitly — take the backup, or pas
 knowledge that the collection will run against an instance whose only copy is the disk it lives
 on (which `backup.same_device` already warns about, on the live instance).
 
+**Done 2026-10-30** (`260d937`), and **this row's premise was stale when it was written.** Measured,
+the refusal already named both escapes (`holon backup --to …` first, or `--force`) — the
+2026-10-23 round-two ledger row fixed exactly that, and this plan was written against the pre-fix
+text, the fourth misdiagnosis of the session from an audit that cited moved code. What was genuinely
+missing is one level deeper: the escape was offered **without its price**. An operator told a flag
+exists and not what the flag decides is the remediation class one layer down, so the message now
+says that with no recent backup the only copy of what this deletes is the disk it lives on, and
+names the finding that already reports it. The guard is derived rather than listed — every
+`--force` a refusal offers as an escape must be followed, in the same sentence, by what skipping
+the gate leaves behind — and mutation-verified by dropping the consequence.
+
+
 ---
 
 ## §7. Register drift — the rows that outlived their verdicts

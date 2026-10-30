@@ -209,25 +209,91 @@ blocked on a mechanism the registry demonstrably carries; what it cannot see is 
 *note* is false while its status looks plausible. That is §7's own residual, and it is a lint row,
 not a plan row.
 
+**Done 2026-10-30** (commit `1340371`): all five corrected in place, H9/H10/H12/H5 → `done`,
+H2 → `blocked` with the honest verdict that the deferred-tool index is a runtime-repo question
+this register cannot observe. The commit also linked this plan from the README (W009) and scrubbed
+three host paths from it, so `lint --strict` reads 0/0 with this file tracked. The gates caught
+six defects in this commit's own drafts — three scrub findings, one W009, and two register rows
+whose terminal evidence named paths this repo does not carry. **A plan's own file is part of what
+its gates measure**, and a gaps outline is the file most likely to name an instance path.
+
+---
+
+## §7b. G6 — the read-only door closed off the instrument that names the boundary
+
+Found by *running* the acceptance test above, not by reading it: `holon --home "$HOLON_HOME"
+--mode ro doctor` exited 1 with `sqlite3.OperationalError: attempt to write a readonly database`
+at `service.py:2133`, `run_smoke`'s cache INSERT. So the flag built today — whose whole point is
+that an agent may look at live state without changing it — made the one command that says whether
+the trust boundary is on **unusable**, on the instance where that question is live.
+
+The mechanism: `--mode ro` opens both databases `mode=ro`, which is honest and enforced by SQLite
+itself. But `readonly` was only checked at the CLI's write-command gate; nothing downstream asked
+before writing. `doctor` reaches one writer — `run_smoke`'s `smoke` cache — and the smoke check
+is precisely the half doctor cannot decide without running commands, so it is the first to hit.
+
+Two rules, both measured. In read-only mode `smoke_results` serves the **stale cache** rather than
+re-running, because running would write and running commands is not the probe's job when it cannot
+record them; the findings a stale cache produces are dated, which is a fact, not invented. And the
+door is not widened: no command in read-only mode may write, so a reader of this section cannot
+conclude that `--mode ro` has become a mode that sometimes writes.
+
+The honest residual, named rather than hidden: with a stale or absent cache the operator gets
+**no smoke findings at all** from a read-only doctor — not a stale reading. That is the correct
+trade (an absent finding is a silence the operator can see, and the read-only doctor's smoke cache
+is written by the heartbeat, which does run), but it is a silence, and a silence that closes is
+not a reading. The gate below asserts both halves.
+
+**Guard, both directions:** `test_read_only_doctor_runs_and_reports` (writes nothing, exits, and
+names the smoke cache's staleness when there is one) and `test_read_only_still_refuses_a_write`
+(the existing door, still shut). Mutation-verified: deleting the `self.readonly` branch fails the
+first; making read-only mode fall through to `run_smoke` fails it too.
+
+**The guard was a null test twice, and both were caught only by running the mutation.** That is
+the session's fourth and fifth of that class, and it is why the mutation is not optional:
+
+1. The first draft of `test_read_only_doctor_runs_and_reports` built its fixture with no `[smoke]`
+   check, so `smoke_results` returned `[]` without ever reaching `run_smoke` — the live
+   `OperationalError` was never reached, and the guard passed with the fix deleted. A fixture
+   that does not reach the defect is the null test's most common form. Fixed by planting
+   `[smoke] checks = ["true"]`, written the way `KernelCase` writes config.
+2. The staleness half asserted a substring `"smoke"` over every finding's message — which the
+   *other* smoke findings satisfy, so it passed with the `smoke.unreadable` finding deleted.
+   Fixed by asserting the check NAME (`smoke.unreadable`) and that its message names read-only.
+   A guard that checks a substring it does not own is testing someone else's line.
+
 ---
 
 ## §8. Order of work
 
 | # | item | why here | gate |
 |---|---|---|---|
+| 0 | **G6** — the read-only door must not close the instrument | found by running the seam's own acceptance test | `test_read_only_doctor_runs_and_reports` |
 | 1 | **G3** — the sweep's own close leaves a guard or a named waiver | it is my fix, and the board is lying until it lands | `test_no_closed_incident_warns_about_its_own_close` |
 | 2 | **G4** — one `kernel()` constructor, all four sites | the drift class that made G4 is still live | `test_every_kernel_constructor_honours_the_mode` |
 | 3 | **G5** — the backup gate names both escapes | fifth firing of a family the ledger already maintains | `test_no_remediation_names_a_command_whose_gate_would_refuse_it` |
 | 4 | **G2.1** — `holon audit walk` reports every break | the mechanism's own blind spot, and the cheapest of the three | two-break chain, both named |
 | 5 | **G2.2/3** — attest, then truncate | the Chair's hand on anything destructive | `--force`, and the named backup |
-| 6 | **§7** — five register rows corrected in place | a stale register corrupts the next plan | lint `register` 0/0 |
+| 6 | **§7** — five register rows corrected in place | a stale register corrupts the next plan | lint `register` 0/0 — **done, `1340371`** |
 | 7 | **G1** — the Chair's one root command | not mine; the sequence is printed and durable | doctor `isolation.reach` → 0 |
 
-Phases 1-4 and 6 are mine and mechanical. Phase 5 needs the Chair's hand on a destructive
+Phases 0-4 and 6 are mine and mechanical. Phase 5 needs the Chair's hand on a destructive
 command. Phase 7 needs the Chair's root shell. The acceptance test for the whole seam is one
 command, run read-only: `holon --home "$HOLON_HOME" --mode ro doctor` reporting **zero** errors
-and only stack-B warnings — today it reports 7 errors, of which 5 are isolation paths one command
-closes, 1 is the chain G2 walks, and 1 is a smoke gate that belongs to B.
+and only stack-B warnings — which, per the table below, leaves G1's 3, G2's 1 and G6's smoke
+silence plus the eight stack-B findings that are not this repo's to close.
+
+§7's own measurement said 7 errors. Re-measured 2026-10-30T17:20Z, after `--mode ro doctor` was
+made to run at all (it died at a write inside `run_smoke`, which the `--mode ro` door closed off —
+see G6): **9 errors, 9 warnings**, and the composition is not the seven the note named:
+
+| finding | count | whose |
+|---|---|---|
+| `smoke.critical` (career-pipeline: company-kb-stats-runs, digest-forge-tag-live, and 3 more) | 5 | **stack B** — the Chair's other program's own checks, declared in `[smoke]` on the live instance |
+| `isolation.reach` (~/.local/bin/operant, the version dir, its launcher) | 3 | **G1**, the Chair's one root command |
+| `audit.chain` (event 1815) | 1 | **G2**, the walk |
+| `incident.guard` (isolation.off, isolation.runner, isolation.reach, isolation.broker, schedule.nowake) | 5 | **G3**, this plan's first row |
+| `smoke.check`, `surface.down`, `backup.same_device` | 2 + 1 + 1 | 2 stack B, 1 stack B (the sourcehound surface), 1 the 2026-10-25 row's own warning |
 
 Two things this plan deliberately does **not** carry:
 

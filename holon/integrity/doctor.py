@@ -91,11 +91,26 @@ def _smoke_findings(k, add):
     rather than taking the whole doctor down with them."""
     try:
         results = k.smoke_results()
+    except sqlite3.OperationalError as e:
+        add("warning", "smoke.unreachable", f"the smoke checks could not be read: {e}")
+        return
     except RuntimeError as e:   # IsolationError extends RuntimeError; OSError rides inside it
         add("warning", "smoke.unreachable",
             f"the smoke checks could not run — the isolated runner does not answer ({e}). "
             "The boundary is half-built: `holon isolation plan` names the root step that starts it.")
         return
+    # Read-only mode serves a stale cache rather than re-running (G6, 2026-10-30: re-running
+    # would write, and `--mode ro` is the promise that nothing does). A stale reading is a fact
+    # and is labelled; an ABSENT cache is a silence, and a silence that closes is not a reading
+    # -- the 2026-10-16 row's own lesson applied to a finding. Name it either way, so the
+    # operator of a read-only probe knows which of the two they are looking at.
+    if getattr(k, "readonly", False):
+        raw = k._setting("smoke")
+        if not raw:
+            add("warning", "smoke.unreadable",
+                "the smoke checks were not run and no previous result is cached — this doctor ran "
+                "read-only, so it could not record any. Without --mode ro, or after one tick, "
+                "these findings appear.")
     for r in results:
         if not r["ok"]:
             add("error" if r["critical"] else "warning", "smoke.critical" if r["critical"] else "smoke.check",

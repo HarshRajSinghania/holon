@@ -1075,6 +1075,97 @@ class Deployment(KernelCase):
         self.assertIn("read-only", err.getvalue().lower(),
                       "the refusal must name the read-only mode it refused under")
 
+    def test_read_only_doctor_runs_and_reports(self):
+        """Found by RUNNING the read-only seam's own acceptance test, 2026-10-30: `holon
+        --home <live> --mode ro doctor` exited 1 with `sqlite3.OperationalError: attempt to
+        write a readonly database` at `run_smoke`'s cache INSERT. The flag built for the
+        AGENTS.md instruction ("read live state only with mode=ro") closed off the one command
+        that says whether the trust boundary is on -- on the instance where that question is
+        live, and with the doctor being the heartbeat's own alarm.
+
+        The command must run, and it must leave the instance untouched. Both halves, because
+        either alone passes for the wrong reason: a doctor that "runs" by catching the
+        OperationalError reports nothing, and one that leaves state behind is not read-only.
+        """
+        home = self.tmp / "cli-ro-doctor" / "home"
+        home.mkdir(parents=True)
+        # A declared smoke check is essential: without one `smoke_results` returns [] without
+        # ever reaching `run_smoke`, and the live OperationalError is never exercised -- the
+        # first draft of this guard was exactly that null test, mutation-verified as passing
+        # with the fix removed. Written the way KernelCase writes config, so the instance is
+        # well-formed from the start rather than patched after the fact.
+        from tests.helpers import MINIMAL
+        h = Home(home)
+        h.config_file.write_text(MINIMAL + '\n[smoke]\nchecks = ["true"]\n')
+        seed = Kernel(h)
+        seed.close()
+        from holon.cli import main
+        import contextlib, io
+        before = {str(q.relative_to(home)): (q.stat().st_mtime_ns, q.stat().st_size)
+                  for q in home.rglob("*") if q.is_file()
+                  and not q.name.endswith(("-wal", "-shm"))}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = main(["--home", str(home), "--mode", "ro", "doctor"])
+        # Exit 1 is a doctor finding; exit 0 is a clean instance. Anything else is a crash,
+        # and 1-from-a-traceback is the exact defect this guard exists to catch, so the
+        # traceback is asserted absent by name rather than inferred from the code.
+        self.assertIn(code, (0, 1), f"the read-only doctor crashed: {err.getvalue()[-600:]}")
+        self.assertNotIn("Traceback (most recent call last)", err.getvalue())
+        still = {str(q.relative_to(home)): (q.stat().st_mtime_ns, q.stat().st_size)
+                 for q in home.rglob("*") if q.is_file()
+                 and not q.name.endswith(("-wal", "-shm"))}
+        self.assertEqual(before, still, "the read-only doctor changed the instance")
+        for w in still.keys() | before.keys():
+            if w.endswith("-wal"):
+                self.assertEqual(Path(home, w).stat().st_size, 0,
+                                 f"the read-only doctor left frames in {w}: that IS a write")
+
+    def test_read_only_doctor_names_a_stale_smoke_cache_rather_than_running_it(self):
+        """The other half of G6, and the half that makes the fix honest rather than silent.
+
+        In read-only mode `smoke_results` serves the STALE cache instead of re-running, because
+        re-running writes. The consequence is real and must be visible: with no cache the
+        operator gets no smoke findings at all -- a silence, not a reading. The 2026-10-16
+        red-team row's own lesson (a lane must never close silently) applies to a finding.
+        So the read-only path must SAY that it served a stale cache when it does.
+
+        Mutation-verified both directions: removing the staleness finding fails this; removing
+        the `self.readonly` branch in `smoke_results` fails the doctor-runs guard above with
+        the live OperationalError.
+        """
+        home = self.tmp / "cli-ro-stale-smoke" / "home"
+        home.mkdir(parents=True)
+        K = Kernel(Home(home))
+        K.close()
+        from holon.integrity import doctor as doctor_mod
+        found = doctor_mod.run(Kernel(Home(home), readonly=True))
+        # the finding is a finding, not stderr noise: read it through the doctor itself. Asserted
+        # by CHECK NAME, because a substring over every message finds "smoke" in the other
+        # smoke lines and proves nothing about this one -- the second null test in this guard.
+        unreadable = [f for f in found if f.get("check") == "smoke.unreadable"]
+        self.assertTrue(unreadable, "a read-only doctor on an instance with no smoke cache did "
+                                   "not report that its smoke findings are unreadable")
+        self.assertIn("read-only", unreadable[0]["message"].lower(),
+                      "the finding must name the read-only mode that caused the silence")
+        # and a FRESH smoke cache is served, not discarded: the stale reading is a real reading,
+        # so a cached failure still reaches the operator through the read-only door.
+        from holon.core.db import connect
+        k2 = Kernel(Home(home))
+        k2.wconn.execute("INSERT OR REPLACE INTO settings VALUES ('smoke', ?)",
+                         (json.dumps({"ts": "2000-01-01T00:00:00.000Z",
+                                      "results": [{"ok": False, "critical": True, "dept": None,
+                                                   "name": "ro-pinned-source", "exit_code": 7,
+                                                   "reason": "", "tail": "pinned"}]}),))
+        k2.close()
+        found2 = doctor_mod.run(Kernel(Home(home), readonly=True))
+        self.assertTrue(any(f.get("check") == "smoke.critical" for f in found2),
+                        "the read-only path discarded a cached smoke failure instead of serving "
+                        "it: a stale reading is a reading, and dropping it invents a pass")
+        for f in found2:
+            if f.get("check") == "smoke.critical":
+                self.assertIn("ro-pinned-source", f["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

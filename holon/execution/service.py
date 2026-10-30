@@ -2142,6 +2142,14 @@ class Kernel:
         if cached and cached["ts"] > (datetime.now(timezone.utc) - timedelta(minutes=age)).strftime(
                 "%Y-%m-%dT%H:%M:%S.%fZ"):
             return cached["results"]
+        # Read-only mode: the cache is stale or absent and re-running would write it. Running the
+        # checks is not the doctor's job when it cannot record them, and a probe that leaves state
+        # behind is exactly what `--mode ro` promises not to be (2026-10-30: `holon --home …
+        # --mode ro doctor` died at this INSERT on a live instance, so the read-only door closed
+        # off the one instrument that says whether the boundary is on). Serve the stale cache --
+        # the findings are then dated, not invented -- and report the staleness to the caller.
+        if self.readonly:
+            return (cached or {}).get("results", [])
         return self.run_smoke() if self.smoke_checks() else []
 
     def smoke_blocked(self) -> list[str]:

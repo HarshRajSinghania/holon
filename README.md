@@ -150,7 +150,7 @@ command, generated from the registry) · [the skills library](holon/skills) ·
 [adapter READMEs](adapters/), which record what each real harness does ·
 [STATUS](docs/STATUS.md) (the live index: where Holon sits, standing decisions, what is next) ·
 [the design corpus](docs/design/README.md) (dated records and how to read them) ·
-[the current outline-plan](docs/plans/2026-10-27-gap-closure-and-architecture-library.md) (what
+[the current outline-plan](docs/plans/2026-10-30-remaining-implementation-gaps.md) (what
 is proposed next).
 
 ## Contributing

@@ -2,7 +2,7 @@
 
 | Grade | Meaning | Typical approver |
 |---|---|---|
-| G0 | routine: reversible, inside the working directory, done many times | head (earned); verified on a sample once trusted |
+| G0 | operation: reversible, inside the working directory, done many times | head (earned); verified on a sample once trusted |
 | G1 | minor: a small reversible change | head or CEO |
 | G2 | significant: several files, a shared system, or a new kind of work | CEO or Chair |
 | G3 | major: wide blast radius, hard to undo | Chair unless authority was earned |

@@ -300,7 +300,7 @@ class Work:
         if lane not in vocab.LANES:
             raise ValueError(f"lane must be one of {vocab.LANES}")
         if lane == "script" and expand:
-            raise ValueError("script work comes only from an approved routine (holon routine add)")
+            raise ValueError("script work comes only from an approved operation (holon operation add)")
         parent = self.get(parent_id) if parent_id else None
         if parent and parent["stage"]:
             raise TransitionError("work can only be nested under work, not under a stage")
@@ -347,7 +347,7 @@ class Work:
         work["lane"] = lane
 
     def _standing_plan(self, work: dict, body: dict, note: str, decided_by: str, grade: int, **cols) -> dict:
-        """A plan stage and its approval recorded as already decided (a routine's standing plan, or the fast
+        """A plan stage and its approval recorded as already decided (an operation's standing plan, or the fast
         lane's), so the execute stage it opens reads like any other approved work."""
         p = self._add_stage(work, "plan", [])
         self._output(p["id"], None, "plan", body, note)
@@ -357,13 +357,13 @@ class Work:
         return a
 
     def fast_track(self, work: dict) -> dict:
-        """Fast lane: routine work (the kernel's grade floor is G0) gets one execute stage whose executor plans
+        """Fast lane: operation work (the kernel's grade floor is G0) gets one execute stage whose executor plans
         and acts in the same session; the result is graded again and judged before the work closes."""
         a = self._standing_plan(work, {"kind": "plan", "lane": "fast", "author": None, "writes": [],
-                                       "findings": "Fast lane: routine work (grade floor G0). Plan the steps "
+                                       "findings": "Fast lane: operation work (grade floor G0). Plan the steps "
                                                    "yourself and act in one session.",
                                        "steps": [work["intent"]]},
-                                "fast lane: routine work, no separate plan", "lane:fast", 0, grade_floor=0,
+                                "fast lane: operation work, no separate plan", "lane:fast", 0, grade_floor=0,
                                 grade_reasons=_dumps(["fast lane: the kernel's grade floor is G0"]))
         return self._add_stage(work, "execute", [a["id"]])
 
@@ -653,14 +653,14 @@ class Work:
     def decide(self, ref: str, decision: str, note: str | None = None, recurring: bool = False,
                review_run: str | None = None) -> dict:
         """Approve or reject a plan. The Chair may decide any; an employee only what is routed to them.
-        A decomposition's children that carry a `cron` are routines: returned in `routines` for the kernel to
+        A decomposition's children that carry a `cron` are operations: returned in `operations` for the kernel to
         create (it classifies them, which must not happen inside this transaction)."""
         if decision not in vocab.OUTCOMES["approve"]:
             raise ValueError("decision must be approve or reject")
         if decision == "reject" and not (note and note.strip()):
             raise ValueError("a rejection needs a note: it is what the planner learns from")
         children: list[str] = []
-        routines: list[dict] = []
+        operations: list[dict] = []
         with write_txn(self.conn):
             approval = self.resolve_approval(ref)
             if approval["status"] not in ("ready", "claimed"):
@@ -684,7 +684,7 @@ class Work:
                     self._set(work["id"], "waiting", f"split by {plan['id']}", decider)
                     for c in body["children"]:
                         if c.get("cron"):
-                            routines.append({**c, "dept": c.get("dept") or work["dept_id"], "parent": work["id"],
+                            operations.append({**c, "dept": c.get("dept") or work["dept_id"], "parent": work["id"],
                                              "objective_id": work["objective_id"] or (
                                                  work["id"] if work["task_class"] == "objective" else None)})
                             continue
@@ -704,7 +704,7 @@ class Work:
                 else:
                     self._add_stage(work, "execute", [approval["id"]], assignee=body.get("assignee") or work["assignee"])
         return {"approval": self.get(approval["id"]), "plan": self.get(plan["id"]), "work": self.get(work["id"]),
-                "children": children, "routines": routines, "decider": decider}
+                "children": children, "operations": operations, "decider": decider}
 
     def submit_execute(self, run_id: str, env: dict, exit_code: int | None = 0, **metrics: Any) -> dict:
         with write_txn(self.conn):
@@ -718,7 +718,7 @@ class Work:
             if failed:
                 self._retry_or_fail(work, self.get(node["id"]), f"execution failed: {env['summary'][:200]}", actor)
             elif work["lane"] == "fast" and env["outcome"] == "noop" and env.get("blockers"):
-                # the executor found the work is not routine: it goes through the full pipeline, from a plan
+                # the executor found the work is not operation: it goes through the full pipeline, from a plan
                 self._set_lane(work, "full", "escalated by its executor: " + "; ".join(env["blockers"])[:400])
                 self._add_stage(work, "plan", [node["id"]], blocked_reason="escalated from the fast lane")
             else:
@@ -782,15 +782,15 @@ class Work:
     def submit_retro(self, run_id: str, env: dict, exit_code: int | None = 0) -> dict:
         """A retro's actions become new work in the department: changes to playbooks, skills, staffing or
         the bylaws go through the same pipeline as any other work."""
-        created, routines = [], []
+        created, operations = [], []
         with write_txn(self.conn):
             run, node, work, actor = self._begin_submit(run_id, "retro", exit_code)
             objective = work["task_class"] == "objective"
             self._output(node["id"], run_id, "retro", env, env.get("summary"))
             self._set(node["id"], "done", "retro done", actor, outcome="done")
             for p in env.get("actions") or []:
-                if p.get("cron"):  # a new routine: a proposal for its approver (a retro approves nothing)
-                    routines.append({**p, "dept": p.get("dept") or work["dept_id"],
+                if p.get("cron"):  # a new operation: a proposal for its approver (a retro approves nothing)
+                    operations.append({**p, "dept": p.get("dept") or work["dept_id"],
                                      "objective_id": work["id"] if objective else work["objective_id"]})
                     continue
                 created.append(self._add_work(
@@ -802,7 +802,7 @@ class Work:
                 self._finish(work, "done", f"objective met: {env.get('summary', '')[:300]}", actor)
             elif work["status"] == "open" and not self._active_stages(work["id"]):
                 self._finish(work, "done", "retro complete", actor)
-        return {"node": self.get(node["id"]), "work": self.get(work["id"]), "created": created, "routines": routines}
+        return {"node": self.get(node["id"]), "work": self.get(work["id"]), "created": created, "operations": operations}
 
     def add_retro(self, work_id: str, why: str) -> dict | None:
         """Queue a retro on a work node (once per reason while one is pending)."""
@@ -985,9 +985,9 @@ class Work:
 
     # ── recurring work ────────────────────────────────────────────────────
     def instantiate_recurring(self, plan_id: str, label: str | None = None) -> dict:
-        """One firing of a recurring plan (a routine). Its lane decides how it runs:
+        """One firing of a recurring plan (an operation). Its lane decides how it runs:
           script, fast   a copy of the standing plan, entering at execute (the kernel runs the command, or one
-                         agent session acts); the result is judged against the routine's rubric
+                         agent session acts); the result is judged against the operation's rubric
           full           a fresh pipeline from plan: each firing is planned and approved on its own
           (none)         plans approved before lanes existed: like fast, but always verified
         The approval a firing inherits is recorded on it."""
@@ -997,7 +997,7 @@ class Work:
         src, body = self.get(plan["parent_id"]), self.output(plan_id)["body"]
         lane = body.get("lane")
         with write_txn(self.conn):
-            work = self._add_work(f"{src['title'].removeprefix('Routine: ')} — {label or now()[:16]}", src["intent"],
+            work = self._add_work(f"{src['title'].removeprefix('Operation: ')} — {label or now()[:16]}", src["intent"],
                                   acceptance=src["acceptance"], project_ref=src["project_ref"], dept=src["dept_id"],
                                   assignee=src["assignee"], requested_by=f"recurring:{plan_id}", priority=src["priority"],
                                   source="schedule", task_class=src["task_class"], risk=src["risk"],
@@ -1040,8 +1040,8 @@ class Work:
 
     def gold_standard(self, work: dict) -> dict | None:
         """The gold standard a run of this work is held to: the last result a verifier (or the Chair) passed
-        for the same routine, else for the same task class in the same department. It is what "done well"
-        looked like last time, so a routine converges on its best verified trajectory instead of drifting."""
+        for the same operation, else for the same task class in the same department. It is what "done well"
+        looked like last time, so an operation converges on its best verified trajectory instead of drifting."""
         q = ("SELECT o.*, w.id AS work_id, w.title AS work_title FROM outputs o JOIN tasks s ON s.id=o.task_id "
              "JOIN tasks w ON w.id=s.parent_id WHERE o.kind='execute' AND o.verified=1 AND w.id<>? AND ")
         r = None

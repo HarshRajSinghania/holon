@@ -3,7 +3,7 @@
 
 The nine seeded seats (operant's `employees` table) map onto Holon departments, roles and
 kernel mechanisms per ORG-LAYER-DISPOSITION.md §5, and each cast cron job is re-proposed as
-a routine through the classifier (`holon routine add` — approval follows the grade). The
+an operation through the classifier (`holon operation add` — approval follows the grade). The
 importer is here, not in the kernel CLI, because the kernel names no harness (law 2).
 
     python3 adapters/operant/import-cast.py                                   # dry run
@@ -14,19 +14,19 @@ importer is here, not in the kernel CLI, because the kernel names no harness (la
 
 The mapping (seat → Holon home):
 - premiere              the CEO and the Chair's channel; its daily directive is an executive
-                        routine with --deliver (no hire — the CEO exists per instance)
+                        operation with --deliver (no hire — the CEO exists per instance)
 - chief-of-staff        an executive employee (planner, steward roles); its daily brief is an
-                        executive routine with --deliver
-- governor              the executive's audit duty: a governance-digest routine (doctor and
+                        executive operation with --deliver
+- governor              the executive's audit duty: a governance-digest operation (doctor and
                         lint triage, audit samples, retros are kernel commands)
-- identity-warden       an identity-audit routine in the department that owns identity (it)
+- identity-warden       an identity-audit operation in the department that owns identity (it)
 - compass               an executive employee (planner) reading the goals tree; weekly
-                        strategy-review routine
+                        strategy-review operation
 - crew-chief, hrmaster,
   dispatcher           kernel mechanisms (metrics, hr review, the board): nothing to apply;
   dp-the-program        the run supervisor (H6) and each department's executor slots
 Cron rows that are not `cron_cast_*` are listed but not proposed: from phase G on,
-`operant cron add` proposes routines itself.
+`operant cron add` proposes operations itself.
 
 Operant's databases are opened read-only; the org tables are archived, never migrated.
 Schedules drop their leading seconds field (operant is 6-field; Holon takes 5).
@@ -47,12 +47,12 @@ from holon.core.paths import Home                                   # noqa: E402
 from holon.execution.cron import Cron                               # noqa: E402
 from holon.execution.service import Kernel                          # noqa: E402
 
-# seat → (dept for its routines, hire?, slot, roles, deliver)
+# seat → (dept for its operations, hire?, slot, roles, deliver)
 HIRES = {  # seats that become Holon employees (slot names are the executive profile's)
     "chief-of-staff": ("executive", "strategy", ["planner", "steward"]),
     "compass": ("executive", "strategy", ["planner"]),
 }
-ROUTINES = {  # seat → (dept, deliver); the cron's own name is the routine's title
+ROUTINES = {  # seat → (dept, deliver); the cron's own name is the operation's title
     "premiere": ("executive", True),
     "chief-of-staff": ("executive", True),
     "governor": ("executive", False),
@@ -69,7 +69,7 @@ MECHANISMS = {  # seat → the kernel mechanism that covers its duty
 
 def holon_cron(schedule: str, shift_min: int = 0) -> str:
     """Operant's 6-field schedule (seconds first) as Holon's 5-field cron. `shift_min` staggers a
-    daily cadence (H-11): four routines proposed for the same minute would otherwise fire as one burst."""
+    daily cadence (H-11): four operations proposed for the same minute would otherwise fire as one burst."""
     five = " ".join(schedule.split()[1:])
     f = five.split()
     if shift_min and len(f) == 5 and f[1].isdigit() and f[2:] == ["*", "*", "*"]:
@@ -114,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dept-map", default=[], action="append", metavar="seat=slug",
                     help="override where a seat lands (repeatable), e.g. identity-warden=ops")
     ap.add_argument("--stagger", type=int, default=7,
-                    help="minutes between proposed daily routines (H-11: same-minute jobs are one burst otherwise)")
+                    help="minutes between proposed daily operations (H-11: same-minute jobs are one burst otherwise)")
     ap.add_argument("--apply", action="store_true", help="hire and propose (default: dry run)")
     a = ap.parse_args(argv)
     dept_map = dict(kv.split("=", 1) for kv in a.dept_map)
@@ -123,10 +123,10 @@ def main(argv: list[str] | None = None) -> int:
     k = Kernel(Home(Path(a.holon_home).expanduser()))
     try:
         hires = {sid: (dept_map.get(sid, d), slot, roles) for sid, (d, slot, roles) in HIRES.items()}
-        routines = {sid: (dept_map.get(sid, d), deliver) for sid, (d, deliver) in ROUTINES.items()}
+        operations = {sid: (dept_map.get(sid, d), deliver) for sid, (d, deliver) in ROUTINES.items()}
         present = {s["employee_id"] for s in seats}
         needed = sorted(({hires[s][0] for s in present if s in hires}
-                         | {routines[s][0] for s in present if s in routines}))
+                         | {operations[s][0] for s in present if s in operations}))
         known = {d["slug"] for d in k.org.depts()}
         missing = [d for d in needed if d not in known]
         if missing:
@@ -149,26 +149,31 @@ def main(argv: list[str] | None = None) -> int:
                                      job_description=s["system_prompt"] or s["role"], driver=a.driver,
                                      slot=slot, roles=roles, reason=f"operant cast import ({sid})")
                     applied.append(f"hired {s['name']} ({emp['id']}) into {dept}")
-            if sid in routines:
+            if sid in operations:
                 if cron is None:
-                    print(f"routine?  {sid:<18} no cron_cast row: nothing to propose")
+                    print(f"operation? {sid:<18} no cron_cast row: nothing to propose")
                 else:
-                    dept, deliver = routines[sid]
+                    dept, deliver = operations[sid]
                     when = holon_cron(cron["schedule"], shift_min=stagger * a.stagger)
                     hot = fires_per_day(when) >= 12
-                    print(f"routine   {sid:<18} dept {dept}: '{cron['name']}' on {when}"
+                    # The label column is 10 wide, like every other row in this table: `hire`,
+                    # `mechanism`, `refused`, `other`. The old `routine` (7) + 3 spaces was 10;
+                    # `operation` (9) + 1 space is also 10, so one space keeps the column. Verified
+                    # against the emitted output, not assumed: the earlier draft added a second
+                    # space and the table went ragged by one column.
+                    print(f"operation {sid:<18} dept {dept}: '{cron['name']}' on {when}"
                           + (" (delivered)" if deliver else "")
                           + ("\n          ⚠ agent cadence ≥ 12×/day: review before approving (script lane? slower cron?)"
                              if hot else ""))
                     stagger += 1
                     if a.apply:
                         try:
-                            approval = k.add_routine(cron["name"], cron["prompt"][:2000], dept=dept,
+                            approval = k.add_operation(cron["name"], cron["prompt"][:2000], dept=dept,
                                                      cron=when, deliver=deliver,
                                                      task_class=f"operant-cast:{sid}")
-                            applied.append(f"routine proposal for {sid} → approval {approval['id']}")
+                            applied.append(f"operation proposal for {sid} → approval {approval['id']}")
                         except ValueError as e:
-                            # The kernel refuses a high-cadence routine it cannot justify (a full
+                            # The kernel refuses a high-cadence operation it cannot justify (a full
                             # lane buys a body on every firing, and the classifier is absent).
                             # The importer reports it, names the seam, and carries on: a refusal
                             # the operator never sees is the silence this adapter exists to end.
@@ -179,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"mechanism {sid:<18} {MECHANISMS[sid]}")
         for c in other:
             print(f"other     {c['id']:<18} '{c['name']}' on {c['schedule']} — not a cast duty; "
-                  "`operant cron add` proposes routines from phase G on")
+                  "`operant cron add` proposes operations from phase G on")
         print("\ndry run (nothing applied); pass --apply to hire and propose" if not a.apply
               else "\napplied:\n  " + "\n  ".join(applied or ["nothing to apply"]))
     finally:

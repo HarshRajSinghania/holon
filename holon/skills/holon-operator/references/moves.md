@@ -9,7 +9,7 @@ be safe. A move performed without these is a preference with a command on it.
   naming problem; merge rather than split.
 - **Its reach before its staff.** `[scope.dept.<slug>]` roots, its checks, its secrets' **paths**
   (never values). A department hired before its reach is a person with no access.
-- **Its staff before its routines are lit.** A routine's lane names who it needs: `fast` needs an
+- **Its staff before its operations are lit.** A operation's lane names who it needs: `fast` needs an
   executor, `full` needs a planner, an executor and a verifier, and `script` needs nobody (the
   kernel runs it). The proposal, the approval, `$holon schedule enable` and `$holon doctor` all
   enforce this (the enable refuses, `--force` is the Chair's word, doctor's `schedule.unstaffed`
@@ -24,7 +24,7 @@ be safe. A move performed without these is a preference with a command on it.
   it). A lone clock-less body is not by itself defective: the kernel claims ready stages
   itself, so an instance where one body is woken is healthy. An instance with no schedules at
   all is **pre-clock**, not broken-clock — arming the first one is the Chair's act, and a
-  routine's staffing and an employee's wake path are two halves of the same question.
+  operation's staffing and an employee's wake path are two halves of the same question.
 - **A refusal that names the fix must name a fix that runs.** The staffing refusal names a hire
   drawn from the department's own charter (its profile's slots, or the roles it lacks), the driver
   from the drivers the instance configures (`$holon drivers`), and never a placeholder for you to
@@ -35,13 +35,13 @@ be safe. A move performed without these is a preference with a command on it.
 - **Its outcome measure.** What `$holon metrics --dept <slug>` shows when it is working. If that
   cannot be stated, the boundary is wrong.
 - **A candidate from outside lands unapproved.** An import is not an approval: `$holon venture
-  import` puts every routine in the unapproved set, and the department's work does not consult them
+  import` puts every operation in the unapproved set, and the department's work does not consult them
   until the Chair or a pipeline approves.
 
 ## remove
 
 - **Export first.** `$holon dept export <slug> --to <dir>` takes the profile, the people, the
-  reach, the checks, the secret paths, the routines and the knowledge bases. Retiring a system
+  reach, the checks, the secret paths, the operations and the knowledge bases. Retiring a system
   without this loses everything the organization learned inside it.
 - **Its employees retire with successors named**, so memory passes to the successor rather than
   dying with the department.

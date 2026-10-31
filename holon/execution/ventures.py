@@ -6,12 +6,12 @@ to be built by hand — which is why a wave was per-pool toil instead of configu
 
 `holon venture import <path> --dept <slug>` reads all four at once:
 - `_org.yaml` → the department's charter, its profile, and its scope roots;
-- `cron-jobs/*.md` → routines, through the repaired importer (nothing silently dropped);
+- `cron-jobs/*.md` → operations, through the repaired importer (nothing silently dropped);
 - `smoke.yaml` → the department's checks (YAML in, the kernel's TOML out);
 - `scripts/` → the script lane's commands.
 
-Dry-run by default. `--apply` creates the department and its routines, leaves the
-routines **unapproved**, and computes each routine's outside-reach check on the
+Dry-run by default. `--apply` creates the department and its operations, leaves the
+operations **unapproved**, and computes each operation's outside-reach check on the
 *fidelity-repaired* text — so the Chair's standing rule sees the protocol's own words.
 """
 
@@ -346,7 +346,7 @@ def _mini_yaml(path: Path) -> dict:
 def _would_refuse(k, rows: list[dict], already: list[dict]) -> list[dict]:
     """What the apply would decline, predicted without writing anything.
 
-    The apply's refusal lives in `add_routine`: a job the classifier calls `script` with no
+    The apply's refusal lives in `add_operation`: a job the classifier calls `script` with no
     `--command` is refused, because a script lane without a command cannot run. The dry run skipped
     that call entirely, so a survey of a real pool reported `skipped: []` while the apply filed 3 of
     4 and named nothing about the fourth. Predicting it costs one classification call and makes the
@@ -378,17 +378,17 @@ def _would_refuse(k, rows: list[dict], already: list[dict]) -> list[dict]:
                                                   "existence of a legacy system's protocol files"})
             continue
         # A3: the five checks that are pure argument validation, asked BEFORE the classifier.
-        # `add_routine` raises eight times, and these five depend on nothing but the routine's own
+        # `add_operation` raises eight times, and these five depend on nothing but the operation's own
         # fields — a trigger named exactly once, an event spelled `event:<pattern>`, a cron that
         # parses, a lane and a command that agree. They were unreportable because they lived inside
-        # `add_routine`, which a dry run never calls: a pool whose protocols all failed them
+        # `add_operation`, which a dry run never calls: a pool whose protocols all failed them
         # reported `protocols: 2, skipped: []` against an apply that made 0. Measured 2026-10-24,
         # exactly these five are functions of the arguments, and the other three depend on the
         # decision model a dry run may not hold (see service.py `_validate_routine_args`).
         #
         # A row declaring no trigger at all is NOT refused here. `legacy_cron` gives a protocol
         # with no `schedule:` an empty `cron`, and the apply's own call passes that to
-        # `add_routine`, which raises "exactly one" and is caught below as an ordinary refusal.
+        # `add_operation`, which raises "exactly one" and is caught below as an ordinary refusal.
         # The dry run must not refuse a row the apply only warns about, and the suite's own guard
         # (`test_absence_is_not_a_declaration_of_pause`) carries the other half of that rule, so
         # the check runs only where the row declares a trigger.
@@ -415,7 +415,7 @@ def _would_refuse(k, rows: list[dict], already: list[dict]) -> list[dict]:
             elif cls.get("lane") is None and not r.get("command") and k._fires_often(r.get("cron") or ""):
                 # The other refusal, and the one the model's silence hides: with no decision model
                 # there is no lane to compare against, and a job that fires every few minutes as a
-                # full routine buys a body on every firing (288 a day for a */5 cron). The apply
+                # full operation buys a body on every firing (288 a day for a */5 cron). The apply
                 # refuses it, so the survey must too — otherwise the dry run again reports a clean
                 # pool that the apply drops.
                 refusal = (f"no decision model is available and this job fires on "
@@ -461,7 +461,7 @@ def venture_import(k, pool: Path, dept: str, dry_run: bool = True) -> dict:
     """Read a venture's four artifacts and (unless a dry run) make them a department.
 
     The dry run reads everything and writes nothing. The apply creates the department
-    with its charter, its reach, its checks, and its routines — every routine
+    with its charter, its reach, its checks, and its operations — every operation
     **unapproved**, because an import is not an approval.
     """
     from holon.cli import legacy_cron
@@ -479,7 +479,7 @@ def venture_import(k, pool: Path, dept: str, dry_run: bool = True) -> dict:
 
     # What the import is NOT doing, stated in the summary itself. An import that drops a protocol
     # and says nothing is indistinguishable from one that imported cleanly, which is how the only
-    # real pool came to report `routines: 0` beside `protocols: 4`. Both runs name their skips.
+    # real pool came to report `operations: 0` beside `protocols: 4`. Both runs name their skips.
     skipped = [{"title": r["title"], "reason": "the protocol declares itself paused"}
                for r in rows if r["paused"]]
 
@@ -492,7 +492,7 @@ def venture_import(k, pool: Path, dept: str, dry_run: bool = True) -> dict:
 
     if dry_run:
         # The dry run must predict what the apply would decline. Measured 2026-10-21: the
-        # script-lane refusal lives in `add_routine`, which the dry run never calls, so a survey
+        # script-lane refusal lives in `add_operation`, which the dry run never calls, so a survey
         # of a 4-protocol pool reported `skipped: []` while the apply silently filed 3 and named
         # nothing about the fourth. Two protocols refused as "looks deterministic" were invisible
         # until you committed. A survey that cannot see its own refusals is the same silence the
@@ -526,14 +526,14 @@ def venture_import(k, pool: Path, dept: str, dry_run: bool = True) -> dict:
                        f"timeout = {int(c.get('timeout') or 60)}")
     k.home.config_file.write_text(text.rstrip() + "\n" + "\n".join(add) + "\n")
 
-    # the routines: each a proposal for the Chair's approval
+    # the operations: each a proposal for the Chair's approval
     made, skipped = 0, list(summary["skipped"])
     for r in rows:
         if r["paused"]:
             continue  # already named in the summary: the operator's own pause, not a failure
         # R-1: a job its own protocol places on a runtime this kernel does not serve is not this
         # organization's work. Importing it would schedule a body against data it cannot reach —
-        # the live instance's two cancelled routines, exactly. Named here, not silently dropped.
+        # the live instance's two cancelled operations, exactly. Named here, not silently dropped.
         if r.get("foreign_runtime"):
             skipped.append({"title": r["title"], "reason": "refused: relevance — this job declares a runtime "
                                                       "this kernel does not serve (`runtime: "
@@ -541,17 +541,17 @@ def venture_import(k, pool: Path, dept: str, dry_run: bool = True) -> dict:
                                                       "its clock live on another system"})
             continue
         try:
-            k.add_routine(r["title"], r["intent"], dept=dept, cron=r["cron"], command=r["command"],
+            k.add_operation(r["title"], r["intent"], dept=dept, cron=r["cron"], command=r["command"],
                           workdir=r["workdir"], deliver=r["deliver"], strict=False, imported=True)
             made += 1
         except (ValueError, LookupError) as e:
             # A protocol that cannot be imported is named, with the reason. Measured 2026-10-21:
             # the silent `continue` that used to sit here let the only importable pool report
-            # `routines: 0` beside `protocols: 4` and say nothing — a migration foundation whose
+            # `operations: 0` beside `protocols: 4` and say nothing — a migration foundation whose
             # own importer cannot tell a clean import from one that lost everything is not a
             # foundation.
             skipped.append({"title": r["title"], "reason": str(e)})
 
-    summary.update({"routines": made, "skipped": skipped, "approved": 0, "created_at": now(),
-                    "note": "every imported routine is unapproved: an import is not an approval"})
+    summary.update({"operations": made, "skipped": skipped, "approved": 0, "created_at": now(),
+                    "note": "every imported operation is unapproved: an import is not an approval"})
     return summary

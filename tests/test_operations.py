@@ -120,6 +120,118 @@ class StepVocabulary(KernelCase):
         self.assertIn("branch_one", vocab.STEP_KINDS)
 
 
+class Rename(KernelCase):
+    """The recurring-work noun is `operation`, agentic-os wide.
+
+    Measured before the rename: 5 quoted `"routine"` occurrences are the *kind* (the
+    applier key, the apply payload, two output keys, the tools mapping) and four CLI
+    subcommands a person types. Every other occurrence is prose. No applied migration
+    names `routine` in a view, a constraint or a column -- they are comments only -- and
+    no live row stores it, so the rename needs no data migration.
+
+    What is NOT renamed, and why: `docs/design/` records and the regression ledger are
+    the record of what was found and when, and tests are cited by the ledger by name.
+
+    The failure mode this file was damaged by while it was written: the rename was applied
+    to `tests/` with a word-boundary regex, which rewrote the guards' own assertions -- the
+    guard that checks the old noun is gone started checking that it is PRESENT, the helper
+    that walks both words walked one word twice, and the ledger guard asserted the new word
+    so it could never fail. Each became a tautology that still printed green. That is the
+    null-test class this ledger records, produced by the very change it guarded.
+    """
+
+    def test_this_files_own_guards_are_not_tautologies(self):
+        """A guard that can only pass is not a guard.
+
+        This file was damaged by the very rename it guards: the word-boundary regex applied
+        to `tests/` rewrote the guards' own assertions, so the guard checking the old noun
+        is gone started checking it is PRESENT, the helper that walks both words walked
+        one word twice, and the ledger guard asserted the new word -- three tautologies
+        that still printed green. This guard reads the guards' OPERATIVE LINES (the ones
+        that name a word in quotes with no assertion around them, i.e. the probes), never
+        its own source, so it cannot condemn itself."""
+        import pathlib
+        lines = pathlib.Path(__file__).read_text().splitlines()
+        probes = [ln.strip() for ln in lines
+                  if ln.strip().startswith('for noun in') or ln.strip().startswith('if f')]
+        joined = "\n".join(probes)
+        self.assertIn('("routine"', joined.replace('"operation", ', ''),
+                      "the noun helper probes the OLD word at least once")
+        self.assertNotIn('("routine", "routine")', joined,
+                         "the noun helper does not probe the same word twice -- that is the "
+                         "null test, not a guard")
+        # the applier guard must deny the OLD key, not the new one. Only a line that
+        # IS the assertion is judged, so this guard cannot match its own list comprehension.
+        applier = [ln for ln in lines if ln.strip().startswith('self.assertNotIn') and 'appliers' in ln]
+        self.assertTrue(applier, "the applier guard still exists")
+        self.assertIn("'appliers[\"routine\"]'", applier[0],
+                      "the applier guard denies the OLD key")
+        # The ledger guard must assert the old word survives. The probe reads the ledger
+        # assertion, which spans two lines; the word is on the first. The variable name and
+        # both literals are assembled from parts here, so this probe's own line can never
+        # be the line it finds -- the self-reference that made the first draft fail.
+        _VAR = "led" + "ger"
+        _NEW = "oper" + "ation"
+        _OLD = "rou" + "tine"
+        _ASSERT = "assert" + "In"
+        hits = [ln for ln in lines if _ASSERT + "(" in ln and ", " + _VAR in ln]
+        self.assertTrue(hits, "the ledger guard still exists")
+        for ln in hits:
+            self.assertIn('"' + _OLD + '"', ln,
+                          "the ledger guard asserts the OLD word survives")
+            self.assertNotIn('"' + _NEW + '"', ln,
+                             "the ledger guard does not assert the NEW word -- that is the "
+                             "tautology this guard was written to catch")
+
+    def test_the_applier_key_is_the_operation(self):
+        import inspect
+        from holon.execution.service import Kernel
+        src = inspect.getsource(Kernel.__init__)
+        self.assertIn('appliers["operation"]', src,
+                      "the recurring-work handler is wired under the new noun")
+        self.assertNotIn('appliers["routine"]', src)
+
+    def test_the_cli_subcommands_are_operations(self):
+        from holon.cli import REGISTRY
+        names = {" ".join(c.path) for c in REGISTRY}
+        for old in ("routine add", "routine fire", "routine import", "routine list"):
+            self.assertNotIn(old, names, f"`{old}` is the surface a person types")
+        for new in ("operation add", "operation fire", "operation import", "operation list"):
+            self.assertIn(new, names, f"`{new}` replaces `{new.replace('operation','routine')}`")
+
+    def test_the_kernel_carries_no_old_noun_as_a_kind(self):
+        """The kind is the string a machine reads. Prose keeps its history; a quoted
+        `"routine"` in kernel code is a kind the kernel still answers to.
+
+        The new word is deliberately absent from this guard: `"operation"` is now the
+        CORRECT kind, so flagging it would condemn the rename it exists to hold."""
+        import pathlib
+        pkg = pathlib.Path(__file__).resolve().parents[1] / "holon"
+        offenders = []
+        for f in pkg.rglob("*.py"):
+            if "__pycache__" in str(f):
+                continue
+            for i, line in enumerate(f.read_text().splitlines(), 1):
+                if '"routine"' in line or "'routine'" in line:
+                    offenders.append(f"{f.name}:{i}")
+        self.assertEqual(offenders, [],
+                         "a quoted 'routine' in the kernel is a kind it still answers to")
+
+    def test_the_immutable_history_keeps_the_old_word(self):
+        """The other half of the guard, and the reason it is not a blanket
+        search-and-replace: the ledger row that records this rename names the old word,
+        and the design records describe the system as it was found."""
+        import pathlib
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        ledger = (repo / "AGENTS.md").read_text()
+        self.assertIn("routine", ledger,
+                      "the ledger keeps the word it recorded; rewriting it would destroy "
+                      "the audit trail the ledger exists to hold")
+        self.assertNotIn("routine add", ledger,
+                         "the ledger names the old COMMAND nowhere: a reader told to run "
+                         "`holon routine add` would be sent to a command that no longer exists")
+
+
 class ComplexityFloor(KernelCase):
     """The grade's missing signal: what the operation costs.
 
@@ -178,7 +290,11 @@ class ComplexityFloor(KernelCase):
 def recurring_work_noun() -> str:
     """The recurring-work noun, read from the kernel's own source -- so the guard follows the
     rename instead of restating it. `Kernel.__init__` wires one applier per mutation kind, and
-    the recurring-work handler is the one this upgrade renames."""
+    the recurring-work handler is the one this upgrade renames.
+
+    Both words are probed on purpose: `operation` is the new noun, `routine` is the old one.
+    A guard that looked for only the new word could never fail, which is the null test this
+    file was written to avoid."""
     import inspect
     from holon.execution.service import Kernel
     src = inspect.getsource(Kernel.__init__)

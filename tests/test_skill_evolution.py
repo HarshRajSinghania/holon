@@ -27,7 +27,7 @@ class SkillEvolution(KernelCase):
 
     def test_a_verified_change_lands_in_the_department_layer_and_every_export(self):
         work, approval, out = self.change(self.base + "\nAlways attach a run log.\n")
-        self.assertGreaterEqual(approval["grade"], 2, "changing how a department works is never routine")
+        self.assertGreaterEqual(approval["grade"], 2, "changing how a department works is never operation")
         self.assertTrue(out["skill_changes"][0]["applied"], out)
         self.assertIn("Always attach a run log", self.k.skills.read("holon-executor", dept="eng"))
         self.assertNotIn("Always attach a run log", self.k.skills.read("holon-executor"), "other departments keep theirs")

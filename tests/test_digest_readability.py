@@ -2,17 +2,17 @@
 
 Measured live 2026-10-30, the Chair's Telegram: 14 lines of
 
-    approve? Routine: reddit-karma-lane-weekly-hod-audit (holon plan show tsk_01M5QXZ6MY437S0VFQN1KVCW2Y)
+    approve? Operation: reddit-karma-lane-weekly-hod-audit (holon plan show tsk_01M5QXZ6MY437S0VFQN1KVCW2Y)
 
 Three things are wrong with that, and all three cost the Chair time:
 1. **The id is not typable.** 27 Crockford-base32 characters, case-sensitive, with no way to
    recover from one wrong character — and the command it names does an exact lookup, so a
    near-miss reads as "not found" rather than "did you mean".
 2. **The line names no consequence.** The Chair is being asked to authorise an unattended
-   routine that runs forever on a schedule. Whether it needs an agent or a command, how often
+   operation that runs forever on a schedule. Whether it needs an agent or a command, how often
    it fires, and whether it reaches people outside the organization are all in the row and none
    were rendered — so every line looks the same and all 14 must be opened to be distinguished.
-3. **`approve? Routine: X` reads as a question about a routine.** What is being approved is a
+3. **`approve? Operation: X` reads as a question about a operation.** What is being approved is a
    plan, and the Chair's command is `plan approve`.
 
 The digest's twin rows (the buttons a chat surface renders) are parsed from the prose, so the
@@ -33,9 +33,9 @@ class TheDigestNamesWhatItAsks(KernelCase):
         kw.setdefault("dept", "eng")
         kw.setdefault("cron", "0 7 * * *")
         kw.setdefault("intent", "Summarise the inbox and file it")
-        a = self.k.add_routine(kw.pop("title", "notes-digest"), **kw)
+        a = self.k.add_operation(kw.pop("title", "notes-digest"), **kw)
         lines = self.k.pending_for_chair(0)
-        return [x for x in lines if a["id"] in x or a["title"].replace("Routine: ", "") in x][0], a
+        return [x for x in lines if a["id"] in x or a["title"].replace("Operation: ", "") in x][0], a
 
     def test_the_line_says_what_is_being_approved_not_just_its_name(self):
         line, _ = self._routine_line(title="notes-digest", cron="0 7 * * *")
@@ -43,10 +43,10 @@ class TheDigestNamesWhatItAsks(KernelCase):
         self.assertIn("notes-digest", line)
         # what the Chair is actually deciding, in words a reader can act on
         self.assertRegex(line, r"(?i)(once a day|times a day|on demand|every|hourly)",
-                         "the cadence is what makes a routine worth reading about")
+                         "the cadence is what makes a operation worth reading about")
 
     def test_a_routine_that_reaches_outside_says_so_on_the_line(self):
-        """The Chair's standing rule: an outside-reach routine lands disabled and is enabled
+        """The Chair's standing rule: an outside-reach operation lands disabled and is enabled
         per job. A line that cannot show that hides the consequence of approving it."""
         line, _ = self._routine_line(
             title="send-applicant-reply",

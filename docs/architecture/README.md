@@ -2,7 +2,7 @@
 
 This directory is the **map** of the documentation, not a duplicate of it. `docs/ARCHITECTURE.md`
 already answers "how does the kernel work" better than anything written here could; `docs/BYLAWS.md`
-owns roles, profiles, lanes, routines, isolation and the learning loop; `docs/CONTRACT.md` owns the
+owns roles, profiles, lanes, operations, isolation and the learning loop; `docs/CONTRACT.md` owns the
 harness contract. A second copy of any of those would be drift, and this repository has a lint pack
 that exists to catch exactly that.
 

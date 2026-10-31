@@ -24,7 +24,7 @@ The emitted decision/regression registry is [`docs/RECORDS.md`](RECORDS.md) (`sc
 
 Last updated: 2026-10-24 (**the ventures import ran**: the Chair approved importing five venture pools as an
 operational migration, governed by *form follows function* — live functions under their live registry
-names, retired form skipped and named. Measured result on the live instance: **26 routine
+names, retired form skipped and named. Measured result on the live instance: **26 operation
 proposals across 3 new departments** — career-pipeline 11, freelance-agency 11, architectural-leads
 4 — every one **unapproved**; all but one land OFF (`starts_disabled`, G3 outside-reach — the one
 exception is dad-arch-materials-refresh, G2 inside-reach and judged, which the kernel starts on
@@ -47,7 +47,7 @@ below is left as written, because it says what was true then.
 > **Two stacks, never one system.** This file describes **A** — the `holon` kernel, this overlay
 > and the `project-genome` skill. The Chair's production venture runtime (**B**: Paperclip,
 > ZeroClaw, the Hermes organism, the VPS) is a **separate program** that this one does not depend
-> on. They share vocabulary ("departments", "routines", "employees", "ventures") and nothing else;
+> on. They share vocabulary ("departments", "operations", "employees", "ventures") and nothing else;
 > a finding about one is never evidence about the other. The bridge between them — the ventures
 > import — is Chair-gated and is **not** on A's critical path. Law 10 in `AGENTS.md`;
 > `docs/design/2026-10-20-the-a-side-program-boundary-and-solutions.md` is the scope statement and
@@ -62,9 +62,9 @@ below is left as written, because it says what was true then.
   The instance's **doctor is clean** (0 errors, 1 warning — `isolation.off`, which needs root)
   after the operant library symlink was repointed, the jcode provider was repointed to the live
   gateway, the skill exports were refreshed and seven stale incident plans were cancelled.
-  **No venture function runs on it yet**: 0 KBs, 2 routines (neither from a venture), 0 of 71 tasks carrying
+  **No venture function runs on it yet**: 0 KBs, 2 operations (neither from a venture), 0 of 71 tasks carrying
   a `project_ref` — and as of 2026-10-24, the ventures import has landed its **proposals** (26
-  unapproved `Routine:` tasks across 3 new departments, every one OFF), which is freight staged,
+  unapproved `Operation:` tasks across 3 new departments, every one OFF), which is freight staged,
   not freight running. `docs/design/2026-10-20-the-genomic-os-operationalized.md` §3 has the
   measured migration state.
 - **B — a different program.** The Chair's production venture runtime: the Hermes **organism**
@@ -105,7 +105,7 @@ below is left as written, because it says what was true then.
 | Instance | Role | State |
 |---|---|---|
 | VPS | production; canonical for the organism's data | ZeroClaw adapter; first supervised wave since 2026-10-12; heartbeat on; runs the build from the morning of 2026-10-13. Later fixes are **not deployed**: the redeploy is deferred by the Chair. |
-| Chair's workstation | development and validation | `~/holon`, **current** (re-measured 2026-10-17: 14/14 migrations, api_version 3; the launcher `~/bin/holon` runs the public checkout at HEAD); **org mode on since 2026-10-16** (operant `[holon]`; 15 operant-driver runs of 44); jcode + operant adapters; Notion mirror with webhooks as user services; heartbeat installed but **off**. Doctor 2026-10-17: standing `isolation.off`; **the org model-gateway smoke fails** (the local free-stack endpoint is down — every agent waits until it passes); 5 incident `plan` tasks sit unstaffed in `executive` (its only member is the Chair). No venture-import config exists yet (no bylaws manifests, 0 units, no `[pilot]`/`[secrets]`/`[scope.dept]` stanzas). **Re-measured 2026-10-23 during the isolation red-team**: the live instance is `01m4sf0wr27mgs9e1327aqxp1z` (3 departments, 7 employees, 166 tasks, 1530 events, work.db at `~/holon/execution/runtime/work.db`, `$HOLON_HOME=<the instance home>` (operator-context.md §Paths) — the only config path is `$HOLON_HOME/holon.toml`, which **exists** at that home (3906 bytes, 2026-10-23 10:24) and carries no `[isolation]` section — the first pass of this audit said the file itself was absent, and re-measuring it corrected that). **Re-measured 2026-10-24 after the ventures import**: 6 departments (executive, pioneer, tools + the imported career-pipeline, freelance-agency, architectural-leads), 26 unapproved `Routine:` proposals awaiting the Chair (each OFF until approved **and** enabled per job), 0 schedules created by the import, doctor at the pre-import baseline. The scratch-home bootstrap during the import's dry run left orphan Chair keys in the real key dir (the known test-process defect class); `holon keys gc --apply` collected 78 orphans into quarantine, the live key kept and re-verified (`holon whoami` → chair). The boundary is therefore absent, and `isolation.off` is now an **error** the heartbeat turns into an incident (`tsk_01M5M5Y37RB8Q5ZS7N7A8B7B32`, open). The installed tick unit names a **scratch** instance (`<a jcode-scratch tmp dir>`, 5 events) and is disabled; what actually writes this instance every ~2 minutes is an **undocumented** heartbeat. A broker unit exists (`~/.config/systemd/user/holon-broker.service`, disabled, inactive, also pointing at the scratch home). Activation order in §5. |
+| Chair's workstation | development and validation | `~/holon`, **current** (re-measured 2026-10-17: 14/14 migrations, api_version 3; the launcher `~/bin/holon` runs the public checkout at HEAD); **org mode on since 2026-10-16** (operant `[holon]`; 15 operant-driver runs of 44); jcode + operant adapters; Notion mirror with webhooks as user services; heartbeat installed but **off**. Doctor 2026-10-17: standing `isolation.off`; **the org model-gateway smoke fails** (the local free-stack endpoint is down — every agent waits until it passes); 5 incident `plan` tasks sit unstaffed in `executive` (its only member is the Chair). No venture-import config exists yet (no bylaws manifests, 0 units, no `[pilot]`/`[secrets]`/`[scope.dept]` stanzas). **Re-measured 2026-10-23 during the isolation red-team**: the live instance is `01m4sf0wr27mgs9e1327aqxp1z` (3 departments, 7 employees, 166 tasks, 1530 events, work.db at `~/holon/execution/runtime/work.db`, `$HOLON_HOME=<the instance home>` (operator-context.md §Paths) — the only config path is `$HOLON_HOME/holon.toml`, which **exists** at that home (3906 bytes, 2026-10-23 10:24) and carries no `[isolation]` section — the first pass of this audit said the file itself was absent, and re-measuring it corrected that). **Re-measured 2026-10-24 after the ventures import**: 6 departments (executive, pioneer, tools + the imported career-pipeline, freelance-agency, architectural-leads), 26 unapproved `Operation:` proposals awaiting the Chair (each OFF until approved **and** enabled per job), 0 schedules created by the import, doctor at the pre-import baseline. The scratch-home bootstrap during the import's dry run left orphan Chair keys in the real key dir (the known test-process defect class); `holon keys gc --apply` collected 78 orphans into quarantine, the live key kept and re-verified (`holon whoami` → chair). The boundary is therefore absent, and `isolation.off` is now an **error** the heartbeat turns into an incident (`tsk_01M5M5Y37RB8Q5ZS7N7A8B7B32`, open). The installed tick unit names a **scratch** instance (`<a jcode-scratch tmp dir>`, 5 events) and is disabled; what actually writes this instance every ~2 minutes is an **undocumented** heartbeat. A broker unit exists (`~/.config/systemd/user/holon-broker.service`, disabled, inactive, also pointing at the scratch home). Activation order in §5. |
 
 Deploying to an instance: pull, run the tests there, `holon doctor`, re-run any adapter installer
 whose inputs changed (AGENTS.md).
@@ -124,8 +124,8 @@ whose inputs changed (AGENTS.md).
 | 2026-10-13 | Notion is the dashboard: SQLite and Notion stay in sync both ways, schema typed (selects, relations), webhooks through a tunnel on the Chair's domain, with the edited-since poll as the fallback. |
 | 2026-10-13 | The workstation instance runs the Notion sync and tunnel; the heartbeat stays off until the Chair turns it on. |
 | 2026-10-13 | Trust boundary (G1): separate Unix users and a kernel broker, not per-harness filesystem confinement. |
-| 2026-10-13 | Lanes (G3): script, then a fast single session, then the full pipeline, cheapest first and enforced at intake by a classifier; each routine has a rubric, and its last verified run is its gold standard. |
-| 2026-10-14 | Routine architecture approved. Fast and full lanes are coupled to playbooks that refine their protocol and rubric after verification; objectives decompose into pools of work and routines that review themselves; smoke checks gate departments as in the legacy organism. |
+| 2026-10-13 | Lanes (G3): script, then a fast single session, then the full pipeline, cheapest first and enforced at intake by a classifier; each operation has a rubric, and its last verified run is its gold standard. |
+| 2026-10-14 | Operation architecture approved. Fast and full lanes are coupled to playbooks that refine their protocol and rubric after verification; objectives decompose into pools of work and operations that review themselves; smoke checks gate departments as in the legacy organism. |
 | 2026-10-14 | Clef (`api.experientiallabs.ai/v1/systemone`) is a decision-model endpoint; it answers in ~274 s, so it is the patient fallback (rubric judging), not the first endpoint. Key rotation deferred: trusted environment. |
 | 2026-10-13 | Decision models (classifiers) run on OpenRouter's decisions endpoint (`[classifier]`), outside free-stack; free-stack stays the only pipeline for generative models. |
 | 2026-10-27 | **One repo. The two-repo split is folded in and holon-personal is deprecated.** Today's ruling supersedes the 2026-10-26 row above, whose three reasons each failed measurement: the 60 MB fits easily; the "3 live sessions rooted in the overlay" are three agent sessions, not uncommitted work (the overlay's last commit landed before this migration and its tree is clean); and `sync-public.sh` is **archived, not needed** — it moved work between two trees that now agree by construction, and its last run passed its own check, so no work is stranded by retiring it. Measured mechanically, not by reading: `personal` held **71 files this repo lacked and 0 the reverse** (a strict superset, so the fold-in is a one-way content import: no merge, no clobber, and history stays where it is as the rollback — `origin/personal` @ `501d281`). The repo stays **public**, unchanged: `visibility=public, private=False`, and `origin/main`'s history already carried the host paths and the Chair's channel (`c2d4ddc`, `70f55d7`, `d84dc95`), so folding the corpus in leaks nothing new — and `lint.py` disables `scrub.*` on an overlay by design, so the split was never mechanically enforcing anything it claimed. What moves: the corpus (docs/design/**, docs/archive/**, STATUS.md, RECORDS.md, TODO.md, PERSONAL.md as the deprecation record). What stays out: private facts, now cited by role from `$HOLON_HOME/config/operator-context.md` (paths, the Chair's telegram id, the live instance id). Commits: `4c53a96` (docs + pointers), `026d6bc` (the archive INDEX rows the fold-in's own gate demanded), `4b27ce9` (README link — D003 had been hidden by pointer_ignore), `453b9ec` (the corpus). Gates: **843 tests OK, 10 skipped; `lint --strict` 0 errors, 0 scrub findings; docs-check ok on all four checks.** The overlay checkout keeps existing full as the rollback; it is deprecated at the architecture level, not deleted. |
@@ -206,11 +206,11 @@ whose inputs changed (AGENTS.md).
 > waits on a ruling.** This section is left as written below, because it says what was
 > true when it was written.
 
-The ranked list is `docs/design/2026-10-13-paperclip-contrast.md` §4. G3 is built (lanes, routines,
+The ranked list is `docs/design/2026-10-13-paperclip-contrast.md` §4. G3 is built (lanes, operations,
 rubrics, decision models: `2026-10-13-lanes-and-decision-models.md`) and so is G1 (the agent user,
 runner and broker: `2026-10-13-trust-boundary.md`; its root setup waits for the Chair). In order:
 intake keys (G4), department secrets (G8), the Notion mirror
-window (G2), then one venture as a pilot department of routines. The full migration plan — ten
+window (G2), then one venture as a pilot department of operations. The full migration plan — ten
 ventures, 61 cron jobs, readiness and waves — is `docs/design/2026-10-14-ventures-migration-plan.md`;
 the terrain survey and the implementation-gap investigation plan that supersedes its §2 gap table
 (is it waves 1–3 actually need G8 secrets, delivery routing, import fidelity, the pilot guard)
@@ -327,8 +327,8 @@ pooled binaries in whichever fence exists (R-05 + the act_commands residual), pe
 department skills (R-09); its §2 design items wait on the Chair (C1/C2 revised, R-04, R-13,
 R-14, R-16, N-1). The ventures re-architecture is red-teamed (its §7): all six decisions
 stay open, and §1's terrain is superseded by the **Paperclip era** — hermes-cron is dead
-(2026-10-16), Paperclip is the only scheduler (68 venture routines, 34 live), so the import's
-live-set source is the Paperclip registry, the decommission rule disables Paperclip routines,
+(2026-10-16), Paperclip is the only scheduler (68 venture operations, 34 live), so the import's
+live-set source is the Paperclip registry, the decommission rule disables Paperclip operations,
 and the cutover runs one scheduler per pool. The workstation instance is re-measured
 **current** (14/14 migrations, api_version 3, org mode on) — this supersedes every pre-wave
 line in this file. Standing ops debt: the local model-gateway smoke fails (free-stack down on
@@ -336,7 +336,7 @@ the workstation) and 5 incident `plan` tasks sit unstaffed in `executive` (the C
 department; zero employees — three are stale hermes-era failures, one is the gateway, one
 the unstaffed report itself). The internal systems, probed live the same day: platform-ops
 exists as **machinery** (org-wide + per-dept smoke, doctor, the incident loop, notify, one
-live test routine) with **no owning department** — `tools` is the e2e validation org, not
+live test operation) with **no owning department** — `tools` is the e2e validation org, not
 ops; the knowledge base is the atomic `memory.db` (76 items, live) plus versioned playbooks —
 the document/collection layer (K-KB, R-14) is not built. See the ventures record's §7.5.
 
@@ -365,7 +365,7 @@ H8 `[chair] channels` + per-event Notion `apply`) landed 2026-10-15; phase G's (
 judgments grouped by build, regression → incident work) landed 2026-10-15. **Every Holon-side
 package H1–H10 is in.** What remains is operant-side (D trajectory writer + usage; E supervisor
 conformance; F gateway chair channel + event firing; G archive org stores, RETIRE org modules,
-disable the cast crons once their routines are approved; G+1 delete the retired modules) — in
+disable the cast crons once their operations are approved; G+1 delete the retired modules) — in
 its repository, under its iteration protocol. The workstation instance is migrated and runs
 this HEAD (Notion sync restarted on it); the VPS redeploy still waits for the Chair, as does
 the workstation heartbeat.
@@ -402,7 +402,7 @@ every stage (execute before its judge), `usage.json` wins, driver `build_cmd` is
 - **wave 4 Resident** (`8b647ab`): `holon adapter test --supervisor '<cmd>'` — the supervisor
 conformance suite (prepare/env/finish/lease/timeout) with a reference supervisor; operant's
 W4 acceptance runs it with its own supervisor. Owner gate after W4: archive the org stores,
-set `[holon]`, run one routine supervised.
+set `[holon]`, run one operation supervised.
 - **wave 7 One org** (`09b8ca2`): the cast import checks departments, `--dept-map`, `--stagger`,
 cadence warnings.
 - **wave 8 Hardening** (`1ddf4fe`): CONTRACT renumbered 1-13; `[retention]` + `holon gc`
@@ -415,7 +415,7 @@ section to land in its W-packages.
 - The **bylaws track and the gateless kernel items are landed** (2026-10-15, after the waves):
   K-2 the incident→guard loop (`920213b`); the bylaws layer U1+U2+U3 with K-4/K-5 — units
   declared in manifests, pooled into briefs and reach, consumed through typed requests, read
-  API v3 (`8693854`); and the pilot safety I1+I5 — imported outside-reach routines land
+  API v3 (`8693854`); and the pilot safety I1+I5 — imported outside-reach operations land
   disabled, and `[pilot]` departments floor outside-reach at the Chair (`234d6b6`).
   319 tests, lint --strict clean. The pilot approval now only gates the pilot itself: its
   first real bylaws manifests (the foundations career-pipeline pools) can be authored when it

@@ -6,12 +6,12 @@ configuration.
 
 **What the archive carries**: the department's profile and slots; its employees'
 records (never their keys); its scope roots; its smoke checks; its secrets bindings
-as **paths**; its routines with their playbooks; its knowledge-base bindings.
+as **paths**; its operations with their playbooks; its knowledge-base bindings.
 
 **What it never carries**: a secret value, and an approval. The secrets are paths to
 0600 key files, exactly as `holon backup` does — a department archive travels, so a
-key inside it would travel too. And an imported routine lands **unapproved**: an
-import is not an approval, and a routine that reached the schedule unapproved would be
+key inside it would travel too. And an imported operation lands **unapproved**: an
+import is not an approval, and an operation that reached the schedule unapproved would be
 the outside-reach import the kernel deliberately disables.
 """
 
@@ -32,11 +32,11 @@ def _sha(p: Path) -> str:
 
 
 def _portable_workdir(path: str | None) -> str | None:
-    """What an archive may say about a routine's working directory.
+    """What an archive may say about an operation's working directory.
 
     A workdir is where THIS machine kept the work. Copying it into an archive publishes one
     operator's filesystem layout to every machine the archive reaches — measured 2026-10-21,
-    where a live instance's routine named another harness's dead session scratch directory and the
+    where a live instance's operation named another harness's dead session scratch directory and the
     export carried it verbatim. The archive keeps the *fact* ("a workdir was set") so a reader
     need not guess, and leaves the path where it belongs: with the machine that has it.
     """
@@ -44,7 +44,7 @@ def _portable_workdir(path: str | None) -> str | None:
 
 
 def export_department(k, dept_id: str, dest: str) -> dict:
-    """Write one department's archive: its shape, its people, its routines, its reach.
+    """Write one department's archive: its shape, its people, its operations, its reach.
 
     `dest` is a directory; the archive is `dest/<slug>-<timestamp>/`.
     """
@@ -69,21 +69,21 @@ def export_department(k, dept_id: str, dest: str) -> dict:
     # the secrets bindings: PATHS, never values
     secrets = (k.config.get("secrets") or {}).get("dept", {}).get(slug) or {}
 
-    routines = []
-    for r in k.routines():
+    operations = []
+    for r in k.operations():
         plan = k.work.get(r["plan"])
         work = k.work.get(plan["parent_id"])
         if work.get("dept_id") != dept_id:
             continue
         body = (k.work.output(plan["id"]) or {"body": {}})["body"]
-        routines.append({"title": r["title"], "cron": r["cron"], "lane": r["lane"],
+        operations.append({"title": r["title"], "cron": r["cron"], "lane": r["lane"],
                          "command": body.get("command"), "rubric": body.get("rubric") or [],
                          "intent": work["intent"], "acceptance": work.get("acceptance"),
                          # A working directory is a machine fact, not a department fact.
-                         # Measured 2026-10-21: the live instance carries one routine whose
+                         # Measured 2026-10-21: the live instance carries one operation whose
                          # workdir is another harness's dead session scratch directory, and the
                          # export copied it verbatim — so an operator's private path became the
-                         # imported routine's workdir on a machine the operator never ran it on.
+                         # imported operation's workdir on a machine the operator never ran it on.
                          # The archive records only whether one was set; the path stays with the
                          # machine that has it, and the import leaves it for the Chair to set.
                          "workdir": _portable_workdir(work.get("workdir")),
@@ -102,7 +102,7 @@ def export_department(k, dept_id: str, dest: str) -> dict:
         "dept": {"slug": slug, "name": dept["name"], "mission": dept.get("mission"),
                  "profile": dept.get("profile"), "bylaws": dept.get("bylaws")},
         "employees": employees,
-        "routines": routines,
+        "operations": operations,
         "scope": scope,
         "smoke": smoke,
         "secrets": dict(secrets),      # paths, never values
@@ -113,15 +113,15 @@ def export_department(k, dept_id: str, dest: str) -> dict:
     (out / MANIFEST).write_text(json.dumps(manifest, indent=2, default=str))
     files = {str(p.relative_to(out)): _sha(p) for p in sorted(out.rglob("*")) if p.is_file()}
     (out / "checksums.json").write_text(json.dumps({"files": files}, indent=2))
-    return {"path": str(out), "dept": slug, "employees": len(employees), "routines": len(routines)}
+    return {"path": str(out), "dept": slug, "employees": len(employees), "operations": len(operations)}
 
 
 def import_department(k, archive: str) -> dict:
     """Create a department from an archive.
 
     Additive: a department that already exists is refused — changing one is the
-    Chair's, not the archive's. Every routine lands **unapproved**; the Chair approves
-    each one, as with any other routine.
+    Chair's, not the archive's. Every operation lands **unapproved**; the Chair approves
+    each one, as with any other operation.
     """
     src = Path(archive).expanduser().resolve()
     manifest_path = src / MANIFEST
@@ -156,11 +156,11 @@ def import_department(k, archive: str) -> dict:
         except (LookupError, ValueError):
             continue  # a slot the profile has no room for is the Chair's to widen
 
-    # its routines, each as a proposal for the Chair's approval
+    # its operations, each as a proposal for the Chair's approval
     made, skipped = 0, []
-    for r in manifest.get("routines") or []:
+    for r in manifest.get("operations") or []:
         try:
-            k.add_routine(r["title"], r.get("intent") or r["title"], dept=slug, cron=r.get("cron"),
+            k.add_operation(r["title"], r.get("intent") or r["title"], dept=slug, cron=r.get("cron"),
                           command=r.get("command"), rubric=r.get("rubric") or None,
                           # the archive names the workdir as a fact, never as a path: the
                           # directory belonged to the exporting machine
@@ -168,13 +168,13 @@ def import_department(k, archive: str) -> dict:
             made += 1
         except (ValueError, LookupError) as e:
             # Named, not swallowed. The venture import had the same silent `continue` and lost an
-            # entire pool with no record; a department archive that drops a routine and says
+            # entire pool with no record; a department archive that drops an operation and says
             # nothing is the same failure in a different command.
             skipped.append({"title": r.get("title"), "reason": str(e)})
 
-    summary = {"dept": slug, "employees": hired, "routines": made, "skipped": skipped,
+    summary = {"dept": slug, "employees": hired, "operations": made, "skipped": skipped,
                "kb": [x["slug"] for x in manifest.get("kb") or []], "approved": 0,
-               "note": "every imported routine is unapproved: an import is not an approval"}
+               "note": "every imported operation is unapproved: an import is not an approval"}
 
     # its reach and its checks, into the instance's config
     scope = manifest.get("scope") or {}

@@ -1,4 +1,4 @@
-"""Lanes, routines, the rubric judge and the decision model (docs/BYLAWS.md §10)."""
+"""Lanes, operations, the rubric judge and the decision model (docs/BYLAWS.md §10)."""
 
 import contextlib
 import io
@@ -43,11 +43,11 @@ class LaneCase(KernelCase):
         self.k.close()
         self.k = Kernel(self.home)
 
-    def routine(self, title="Digest", **kw):
+    def operation(self, title="Digest", **kw):
         kw.setdefault("dept", "eng")
         kw.setdefault("cron", "0 7 * * *")
         kw.setdefault("workdir", str(self.workdir))
-        a = self.k.add_routine(title, kw.pop("intent", "Summarise the inbox"), **kw)
+        a = self.k.add_operation(title, kw.pop("intent", "Summarise the inbox"), **kw)
         return a, self.k.work.plan_for_approval(a["id"])
 
     def fire(self, plan):
@@ -140,12 +140,12 @@ class Routines(LaneCase):
     def test_a_deterministic_job_must_be_a_script_and_the_kernel_runs_it_without_an_agent(self):
         self.fake.choose(lane="script", external=0.02)
         with self.assertRaisesRegex(ValueError, "deterministic"):
-            self.routine("Rotate logs", intent="Move logs older than 7 days into archive/")
-        a, plan = self.routine("Rotate logs", intent="Move old logs", command="echo rotated > rotated.txt",
+            self.operation("Rotate logs", intent="Move logs older than 7 days into archive/")
+        a, plan = self.operation("Rotate logs", intent="Move old logs", command="echo rotated > rotated.txt",
                                rubric=["rotated.txt exists"])
-        self.assertEqual((a["approver"], a["grade"]), ("chair", 2), "a routine runs unattended: G2")
+        self.assertEqual((a["approver"], a["grade"]), ("chair", 2), "a operation runs unattended: G2")
         self.k.approve(a["id"])
-        self.assertEqual([(r["lane"], r["enabled"]) for r in self.k.routines()], [("script", True)])
+        self.assertEqual([(r["lane"], r["enabled"]) for r in self.k.operations()], [("script", True)])
         w = self.fire(plan)
         self.assertEqual(w["lane"], "script")
         self.assertIsNone(self.k.claim("execute", self.dev1), "no agent claims a script stage")
@@ -156,7 +156,7 @@ class Routines(LaneCase):
 
     def test_a_failing_script_is_retried_then_fails(self):
         self.fake.choose(lane="script", external=0.02)
-        a, plan = self.routine("Check disk", command="exit 3")
+        a, plan = self.operation("Check disk", command="exit 3")
         self.k.approve(a["id"])
         w = self.fire(plan)
         self.k.tick(foreground=True)
@@ -166,7 +166,7 @@ class Routines(LaneCase):
     def test_without_a_decision_model_a_script_closes_on_its_exit_code_and_checks(self):
         self.classifier = False
         self.configure("")
-        a, plan = self.routine("Touch", command="touch t.txt", lane="script")
+        a, plan = self.operation("Touch", command="touch t.txt", lane="script")
         self.k.approve(a["id"])
         w = self.fire(plan)
         self.k.tick(foreground=True)
@@ -174,20 +174,20 @@ class Routines(LaneCase):
 
     def test_the_lane_is_enforced_cheapest_first(self):
         self.fake.choose(lane="full", external=0.02)
-        _, plan = self.routine("Weekly review", lane="fast")
+        _, plan = self.operation("Weekly review", lane="fast")
         self.assertEqual(plan["output"]["body"]["lane"], "full", "a cheaper lane than the job needs is raised")
         self.fake.choose(lane="fast", external=0.02)
         with self.assertRaisesRegex(ValueError, "say --why"):
-            self.routine("Inbox digest", lane="full")
-        a, plan = self.routine("Inbox digest", lane="full", why="the Chair wants every digest verified")
+            self.operation("Inbox digest", lane="full")
+        a, plan = self.operation("Inbox digest", lane="full", why="the Chair wants every digest verified")
         self.assertIn("the Chair wants", plan["grade_reasons"])
         self.fake.choose(lane="fast", external=0.9)
-        a, _ = self.routine("Post the digest")
+        a, _ = self.operation("Post the digest")
         self.assertEqual(a["grade"], 3, "reaching outside the organization: G3")
 
     def test_fast_routines_converge_on_their_gold_standard(self):
         self.fake.choose(lane="fast", external=0.02)
-        a, plan = self.routine(rubric=["names every unread thread"])
+        a, plan = self.operation(rubric=["names every unread thread"])
         self.k.approve(a["id"])
         self.fake.answer = lambda s, q: {k: {"type": "noul", "noul": 0.3} for k in q}
         first = self.fire(plan)
@@ -204,7 +204,7 @@ class Routines(LaneCase):
 
     def test_a_full_routine_plans_each_firing_afresh(self):
         self.fake.choose(lane="full", external=0.02)
-        a, plan = self.routine("Growth experiment")
+        a, plan = self.operation("Growth experiment")
         self.k.approve(a["id"])
         w = self.fire(plan)
         self.assertEqual((w["lane"], self.pipeline_of(w)), ("full", [("plan", "ready")]))
@@ -214,13 +214,13 @@ class Routines(LaneCase):
 
         Found on the live instance with the pilot: `spread-sample` runs `spread_sample.py` on a
         `*/5 * * * *` cron — 288 firings a day — and the classifier judges it a script at 100%
-        confidence. With the model off, `classify` returns `lane: None`, the routine's own
-        heuristic had nothing to compare against, and the job landed as a `full` routine: a body
+        confidence. With the model off, `classify` returns `lane: None`, the operation's own
+        heuristic had nothing to compare against, and the job landed as a `full` operation: a body
         dispatched to do what a 5-second script does, 288 times a day, unattended.
 
         The guard: turn the decision model off, import the real pool through
         `venture_import`, and assert that a job whose cron fires every few minutes never lands as
-        a `full` routine — a lane whose every firing dispatches a body.
+        a `full` operation — a lane whose every firing dispatches a body.
         """
         self.classifier = False
         self.configure("")
@@ -244,7 +244,7 @@ class Routines(LaneCase):
         # guard now asserts the ruling: the frequent jobs are refused by name, not silently
         # dropped, and the refusal is the relevance rule rather than a lane heuristic.
         on_file = venture_import(self.k, POOL, "pilot", dry_run=False)
-        self.assertEqual(0, on_file["routines"], on_file)
+        self.assertEqual(0, on_file["operations"], on_file)
         # a refusal is named, not a silent drop: this is the whole point of the survey
         for title, cron in often:
             reasons = [s["reason"] for s in on_file["skipped"] if s["title"] == title]
@@ -319,12 +319,12 @@ class Classifier(LaneCase):
 
 
 class EventTriggers(LaneCase):
-    """H7 (phase F): a routine may fire on an event pattern instead of a cron. The runtime
-    that sees a matching event fires it (`holon routine fire`), once per cooldown, with the
+    """H7 (phase F): a operation may fire on an event pattern instead of a cron. The runtime
+    that sees a matching event fires it (`holon operation fire`), once per cooldown, with the
     payload on the work; api_triggers (api_version 2) publishes it with trigger_kind 'event'."""
 
     def _routine(self):
-        a = self.k.add_routine("Watch invoices", "Summarise each invoice", dept="eng",
+        a = self.k.add_operation("Watch invoices", "Summarise each invoice", dept="eng",
                                event="event:webhook:invoice.*", lane="fast", why="each needs judgement",
                                workdir=str(self.workdir))
         approval = self.k.work.plan_for_approval(a["id"])
@@ -357,7 +357,7 @@ class EventTriggers(LaneCase):
 
     def test_a_routine_needs_a_cron_or_an_event(self):
         with self.assertRaises(ValueError):
-            self.k.add_routine("No clock", "Nothing schedules it", dept="eng", workdir=str(self.workdir))
+            self.k.add_operation("No clock", "Nothing schedules it", dept="eng", workdir=str(self.workdir))
 
 
 class BuildJudgments(LaneCase):
@@ -380,7 +380,7 @@ class EventPayloads(LaneCase):
     def test_fire_payload_is_literal_never_a_file_reference(self):
         s = self._routine() if hasattr(self, "_routine") else None
         if s is None:
-            a = self.k.add_routine("Watch invoices", "Summarise each invoice", dept="eng",
+            a = self.k.add_operation("Watch invoices", "Summarise each invoice", dept="eng",
                                    event="event:webhook:invoice.*", lane="fast", why="j", workdir=str(self.workdir))
             ap = self.k.work.plan_for_approval(a["id"])
             self.k.approve(ap["id"])
@@ -390,7 +390,7 @@ class EventPayloads(LaneCase):
                       "the literal text, not a file the payload named")
 
     def test_the_brief_shows_event_payloads_as_external_data(self):
-        a = self.k.add_routine("Watch invoices", "Summarise each invoice", dept="eng",
+        a = self.k.add_operation("Watch invoices", "Summarise each invoice", dept="eng",
                                event="event:webhook:invoice.*", lane="fast", why="j", workdir=str(self.workdir))
         ap = self.k.work.plan_for_approval(a["id"])
         self.k.approve(ap["id"])
@@ -422,7 +422,7 @@ class CLIContract(LaneCase):
     reason (a skip is not a firing), and --payload takes text literally, never a file it names."""
 
     def _event_routine(self):
-        a = self.k.add_routine("Watch invoices", "Summarise each invoice", dept="eng",
+        a = self.k.add_operation("Watch invoices", "Summarise each invoice", dept="eng",
                                event="event:webhook:invoice.*", lane="fast", why="j", workdir=str(self.workdir))
         self.k.approve(self.k.work.plan_for_approval(a["id"])["id"])
         return next(r for r in self.k.schedules.list() if r["event"])["id"]
@@ -436,33 +436,33 @@ class CLIContract(LaneCase):
 
     def test_a_skipped_firing_exits_3_with_its_reason(self):
         sid = self._event_routine()
-        rc, out = self.cli("routine", "fire", sid, "--payload", "invoice 42")
+        rc, out = self.cli("operation", "fire", sid, "--payload", "invoice 42")
         self.assertEqual(rc, 0)
-        rc, out = self.cli("routine", "fire", sid)            # within the cooldown
+        rc, out = self.cli("operation", "fire", sid)            # within the cooldown
         self.assertEqual(rc, 3, "NOTHING: a skip is not a firing (H-13)")
         self.assertIn("skipped", out)
         self.k.wconn.execute("UPDATE schedules SET next_run_at=NULL WHERE id=?", (sid,))
-        rc, out = self.cli("routine", "fire", sid)            # the last firing's work is still open
+        rc, out = self.cli("operation", "fire", sid)            # the last firing's work is still open
         self.assertEqual(rc, 3)
         self.assertIn("skipped", out)
 
     def test_the_payload_flag_takes_text_literally(self):
         sid = self._event_routine()
-        rc, out = self.cli("routine", "fire", sid, "--payload", "@/etc/hostname")
+        rc, out = self.cli("operation", "fire", sid, "--payload", "@/etc/hostname")
         self.assertEqual(rc, 0)
         body = self.k.work.messages(task_id=out["recurring_work"])[0]["body"]
         self.assertIn("@/etc/hostname", body, "the literal text, not the file it named (H-06)")
 
 
 class ImportFidelity(LaneCase):
-    """I1: a bulk `routine import --apply` must never light an outreach fleet. An imported job
+    """I1: a bulk `operation import --apply` must never light an outreach fleet. An imported job
     the classifier floors at G3+ (outside reach) lands as a DISABLED schedule — one bulk
     approval is not per-job activation; `holon schedule enable` is."""
 
     def _imported_routine(self, external_p):
         with mock.patch.object(self.k, "classify", return_value={"lane": "fast", "confidence": 0.99,
                                                                 "external_p": external_p}):
-            a = self.k.add_routine("p4-outreach: DM the founders", "send each lead a message",
+            a = self.k.add_operation("p4-outreach: DM the founders", "send each lead a message",
                                    dept="eng", cron="0 9 * * *", workdir=str(self.workdir),
                                    imported=True)
         self.k.approve(a["id"])
@@ -473,7 +473,7 @@ class ImportFidelity(LaneCase):
         sid = self.k.wconn.execute("SELECT id FROM schedules WHERE template_id=?",
                                    (a["id"],)).fetchone()[0]
         s = self.k.schedules.get(sid)
-        self.assertFalse(s["enabled"], "the outreach routine starts OFF: enable is per job")
+        self.assertFalse(s["enabled"], "the outreach operation starts OFF: enable is per job")
         self.assertIsNone(s["next_run_at"], "OFF means no clock either")
         self.k.schedules.set_enabled(sid, True)   # the Chair's per-job word
         self.assertTrue(self.k.schedules.get(sid)["enabled"])
@@ -482,7 +482,7 @@ class ImportFidelity(LaneCase):
         self._imported_routine(0.10)   # internal: external_p under the bar — floors G2, starts on approval
         with mock.patch.object(self.k, "classify", return_value={"lane": "fast", "confidence": 0.99,
                                                                 "external_p": 0.10}):
-            a2 = self.k.add_routine("Internal digest", "summarize the boards", dept="eng", cron="0 9 * * *",
+            a2 = self.k.add_operation("Internal digest", "summarize the boards", dept="eng", cron="0 9 * * *",
                                     workdir=str(self.workdir), imported=True)
         self.k.approve(a2["id"])
         sid = self.k.wconn.execute("SELECT id FROM schedules WHERE template_id=?",
@@ -498,21 +498,21 @@ class ImportFidelity(LaneCase):
         from the job's own words, and an import it could not judge at all fails closed.
         """
         self.fake.status = 500          # the model is down: every request fails
-        a = self.k.add_routine("p4-outreach: DM the founders", "send each lead a message",
+        a = self.k.add_operation("p4-outreach: DM the founders", "send each lead a message",
                                dept="eng", cron="0 9 * * *", workdir=str(self.workdir), imported=True)
         self.assertGreaterEqual(a["grade"], 3, "the job's own words name an outside-reach verb: floor G3")
         self.k.approve(a["id"])
         sid = self.k.wconn.execute("SELECT id FROM schedules WHERE template_id=?",
                                    (self.k.work.plan_for_approval(a["id"])["id"],)).fetchone()[0]
         s = self.k.schedules.get(sid)
-        self.assertFalse(s["enabled"], "the outreach routine starts OFF even with no model to ask")
+        self.assertFalse(s["enabled"], "the outreach operation starts OFF even with no model to ask")
         self.assertIsNone(s["next_run_at"], "OFF means no clock either")
 
     def test_an_import_the_kernel_cannot_judge_fails_closed(self):
         """No model opinion and no verb named: the kernel cannot tell whether the job reaches
         outside, so an import lands OFF and the Chair enables it per job. Fail closed."""
         self.fake.status = 500          # the model is down: every request fails
-        a = self.k.add_routine("Rebuild the index", "reindex the local stores", dept="eng", cron="0 9 * * *",
+        a = self.k.add_operation("Rebuild the index", "reindex the local stores", dept="eng", cron="0 9 * * *",
                                workdir=str(self.workdir), imported=True)
         self.k.approve(a["id"])
         sid = self.k.wconn.execute("SELECT id FROM schedules WHERE template_id=?",
@@ -521,15 +521,15 @@ class ImportFidelity(LaneCase):
                          "an unjudged import lands OFF: the Chair enables it per job")
 
     def test_a_hand_written_routine_is_not_disabled_by_the_unjudged_rule(self):
-        """The fail-closed rule is about IMPORTS: a hand-written routine is the Chair's own act
+        """The fail-closed rule is about IMPORTS: a hand-written operation is the Chair's own act
         and keeps its behaviour (it starts on approval)."""
         self.fake.status = 500          # the model is down: every request fails
-        a = self.k.add_routine("Rebuild the index", "reindex the local stores", dept="eng", cron="0 9 * * *",
+        a = self.k.add_operation("Rebuild the index", "reindex the local stores", dept="eng", cron="0 9 * * *",
                                workdir=str(self.workdir))
         self.k.approve(a["id"])
         sid = self.k.wconn.execute("SELECT id FROM schedules WHERE template_id=?",
                                    (self.k.work.plan_for_approval(a["id"])["id"],)).fetchone()[0]
-        self.assertTrue(self.k.schedules.get(sid)["enabled"], "a hand-written routine starts on approval")
+        self.assertTrue(self.k.schedules.get(sid)["enabled"], "a hand-written operation starts on approval")
 
 
 class PilotFloor(LaneCase):
@@ -544,7 +544,7 @@ class PilotFloor(LaneCase):
         self._pilot()
         with mock.patch.object(self.k, "classify", return_value={"lane": "fast", "confidence": 0.99,
                                                                 "external_p": 0.95}):
-            a = self.k.add_routine("DM the founders", "send each lead a message", dept="eng",
+            a = self.k.add_operation("DM the founders", "send each lead a message", dept="eng",
                                    cron="0 9 * * *", workdir=str(self.workdir), imported=True)
         self.assertEqual(a["grade"], 4, "only the Chair may approve outside-reach in a pilot department")
 

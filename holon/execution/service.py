@@ -74,14 +74,14 @@ DEFAULT_CONFIG = {
                                                         # command prints when it had nowhere to deliver,
                                                         # so an exit 0 that delivered nothing is not read
                                                         # as a success (see Kernel.notify)
-    "events": {"cooldown_s": 300},   # an event routine fires at most once per this (H7)
+    "events": {"cooldown_s": 300},   # an event operation fires at most once per this (H7)
     "chair": {"channels": []},       # '<platform>:<user id>' refs whose channel messages are the Chair's (H8)
     # what employees may reach beyond their work's workdir; [scope.dept.<slug>] adds to it per department
     "scope": {"roots": [], "commands": [], "act_commands": []},
     # machine checks the kernel runs in the workdir after every execute, before any verifier;
     # [checks.dept.<slug>] and [checks.class.<task_class>] add their own
     "checks": {"commands": [], "timeout_s": 600},
-    # lanes (docs/BYLAWS.md §10): fast = one session for routine (G0) work; script = the kernel runs a command
+    # lanes (docs/BYLAWS.md §10): fast = one session for operation (G0) work; script = the kernel runs a command
     "lanes": {"fast": True, "script_timeout_s": 600, "external_p_max": 0.5},
     # a decision model for lane choice, rubric judging, failure triage and routing; empty url = off
     "classifier": dict(decisions.DEFAULTS),
@@ -102,23 +102,23 @@ DEFAULT_CONFIG = {
 OBJECTIVE_PLAN = (
     "This work is an objective: an outcome the organization pursues over time, judged by the key results in its "
     "acceptance. Decompose it (kind `decompose`) into the pool that achieves it: one-off work for what is done "
-    "once, and routines for what must happen repeatedly. A child with a `cron` is a routine: give it a `lane` "
+    "once, and operations for what must happen repeatedly. A child with a `cron` is an operation: give it a `lane` "
     "(`script` with a `command` when the job is deterministic; `fast` for small, bounded judgment; `full` for "
     "open-ended work that needs its own plan each time) and a `rubric`: checkable criteria that tie each result "
-    "to the key results. Routines and their rubrics start rough on purpose: every verified run refines their "
+    "to the key results. Operations and their rubrics start rough on purpose: every verified run refines their "
     "playbook, and the objective's review reshapes the pool.")
 OBJECTIVE_REVIEW = (
     "Review this objective against its key results, using the dashboard below. Say in `summary` how far each key "
     "result is, and in `cause` what most limits progress. Your `actions` reshape the pool: new one-off work, new "
-    "routines (`cron`, `lane`, `rubric`; a routine waits for its approver), or work to change a routine or its "
-    "playbook. Retiring a routine is the Chair's (`holon schedule disable`): ask for it in an action. Set "
+    "operations (`cron`, `lane`, `rubric`; an operation waits for its approver), or work to change an operation or its "
+    "playbook. Retiring an operation is the Chair's (`holon schedule disable`): ask for it in an action. Set "
     "`objective_met` only when every key result is met by verified results.")
 # what each lane costs and is for: the classifier's options, and the order "cheapest first" means
 LANE_OPTIONS = {
     "script": "deterministic: fixed inputs and fixed steps with no judgment; a shell or Python command does it "
               "the same way every time",
     "fast": "needs some language judgment (read, summarise, classify, draft, decide) but is small, bounded and "
-            "routine; one agent session does it",
+            "operation; one agent session does it",
     "full": "open-ended, multi-step, risky, novel or consequential; needs a plan, an approval and an independent "
             "check",
 }
@@ -293,7 +293,7 @@ class Kernel:
         self.work.appliers["authority"] = lambda a: self.org.write_authority(
             a["approver"], a["task_class"], a["max_grade"], a["reason"])
         self.work.appliers["employee_status"] = self._apply_status
-        self.work.appliers["routine"] = self._apply_routine
+        self.work.appliers["operation"] = self._apply_operation
         self.decider = Decider(self.config["classifier"])
         self._build_cache: dict[str, str | None] = {}   # driver → harness build (H10), one probe per process
         self.skills = Library(home)
@@ -390,9 +390,9 @@ class Kernel:
                review_run: str | None = None) -> dict:
         out = self.work.decide(ref, decision, note, recurring, review_run)
         work, approval = out["work"], out["approval"]
-        if out["routines"]:
+        if out["operations"]:
             author = (self.work.output(out["plan"]["id"]) or {"body": {}})["body"].get("author")
-            out["routines"] = self._routines_from_items(out["routines"], out["decider"],
+            out["operations"] = self._operations_from_items(out["operations"], out["decider"],
                                                         f"emp:{author}" if author else out["decider"])
         author = (self.work.output(out["plan"]["id"]) or {"body": {}})["body"].get("author")
         self.memory.record_review(work, author, decision + "d", note, self._dept_scope(work["dept_id"]))
@@ -806,8 +806,8 @@ class Kernel:
             out = self.verify(node["id"], env["verdict"], env["note"], run_id=run_id)
         else:
             out = self.work.submit_retro(run_id, env, exit_code)
-            if out["routines"]:
-                out["routines"] = self._routines_from_items(out["routines"], None, f"emp:{run['employee_id']}")
+            if out["operations"]:
+                out["operations"] = self._operations_from_items(out["operations"], None, f"emp:{run['employee_id']}")
             if work.get("task_class") == "retro" and work.get("dept_id"):
                 self._ack_proposals(work["dept_id"])
         # H-04: usage is recorded for every stage — what the harness measured in usage.json wins
@@ -1322,12 +1322,12 @@ class Kernel:
         The cheapest full-lane firing is one agent session. A */5 job is 288 of them a day; even an
         hourly job is 24. The threshold matches the boundary the cast importer in `adapters/`
         already recognises (it flags a job at `>= 12/day` and enforces nothing) — this is that
-        flag with a decision attached. An unreadable cron is not a reason to refuse a routine,
+        flag with a decision attached. An unreadable cron is not a reason to refuse an operation,
         so a parse failure is False."""
         try:
             return cls._per_day(cron) > at_most
         except Exception:
-            return False  # an unreadable cron is not a reason to refuse a routine
+            return False  # an unreadable cron is not a reason to refuse an operation
 
     def _external_by_name(self, title: str, intent: str) -> tuple[bool, str]:
         """Outside-reach, decided by the job's own words rather than by a model.
@@ -1358,10 +1358,10 @@ class Kernel:
     def _validate_routine_args(title: str, intent: str, *, cron: str | None = None,
                              event: str | None = None, lane: str | None = None,
                              command: str | None = None) -> None:
-        """The five checks on a routine's own arguments, before any state is consulted.
+        """The five checks on an operation's own arguments, before any state is consulted.
 
-        Extracted from `add_routine`'s body on 2026-10-24 for A3: the dry run could not report what the
-        apply would refuse, because the refusal lived in `add_routine`, which a dry run never calls. A
+        Extracted from `add_operation`'s body on 2026-10-24 for A3: the dry run could not report what the
+        apply would refuse, because the refusal lived in `add_operation`, which a dry run never calls. A
         survey of a real pool reported `protocols: 2, skipped: []` against an apply that made 0, so an
         import could look clean and then drop everything.
 
@@ -1370,7 +1370,7 @@ class Kernel:
         whether the lane and the command agree with each other. None of them needs the classifier, the
         decision model, or the database, so both the apply and the dry run can decide them identically.
 
-        The other three of `add_routine`'s eight raises are NOT here, and that boundary is the point:
+        The other three of `add_operation`'s eight raises are NOT here, and that boundary is the point:
         `this job looks deterministic`, `no decision model is available` and `the classifier says` all
         depend on `cls`, which comes from the decision model. A dry run can hold it when a model is
         configured and cannot when it is not, so those stay where a caller can see which case it is in.
@@ -1378,7 +1378,7 @@ class Kernel:
         same whichever path produced it.
         """
         if bool(cron) == bool(event):
-            raise ValueError("a routine needs --cron or --on event:<pattern>, exactly one")
+            raise ValueError("an operation needs --cron or --on event:<pattern>, exactly one")
         if event and not event.startswith("event:"):
             raise ValueError("an event trigger is 'event:<pattern>': the runtime that sees the event matches it")
         if cron:
@@ -1386,24 +1386,24 @@ class Kernel:
         if lane not in (None, *vocab.LANES):
             raise ValueError(f"lane must be one of {vocab.LANES}")
         if command and lane not in (None, "script"):
-            raise ValueError("--command makes a script routine; drop --lane or --command")
+            raise ValueError("--command makes a script operation; drop --lane or --command")
         if lane == "script" and not command:
             raise ValueError("the script lane runs an approved --command")
 
-    def add_routine(self, title: str, intent: str, *, dept: str, cron: str | None = None, event: str | None = None,
+    def add_operation(self, title: str, intent: str, *, dept: str, cron: str | None = None, event: str | None = None,
                     lane: str | None = None,
                     command: str | None = None, rubric: list[str] | None = None, why: str | None = None,
                     workdir: str | None = None, task_class: str | None = None, risk: str = "normal",
                     project_ref: str | None = None, objective_id: str | None = None, strict: bool = True,
                     deliver: bool = False, imported: bool = False) -> dict:
-        """A routine (a cron job, or an event trigger) as a proposal for the approver its grade names. The
+        """A operation (a cron job, or an event trigger) as a proposal for the approver its grade names. The
         lane is enforced cheapest first: a job the classifier judges deterministic must be a script
         (`command`); a costlier lane than the classifier's needs `why`, which is recorded; a cheaper one
-        is raised to the classifier's. A routine runs unattended, so its floor is G2 (G3 when it
-        reaches outside the organization). `strict=False` (a planner's routine): a costlier lane than
+        is raised to the classifier's. A operation runs unattended, so its floor is G2 (G3 when it
+        reaches outside the organization). `strict=False` (a planner's operation): a costlier lane than
         the classifier's is lowered to it instead.
         `event` (H7): 'event:<pattern>' — no cron; the runtime that sees a matching event fires it
-        (`holon routine fire`), once per [events] cooldown_s; Holon never matches events itself."""
+        (`holon operation fire`), once per [events] cooldown_s; Holon never matches events itself."""
         self._validate_routine_args(title, intent, cron=cron, event=event, lane=lane, command=command)
         cls = self.classify(title, intent, command)
         order = list(vocab.LANES)
@@ -1424,7 +1424,7 @@ class Kernel:
                 # lane buys a body on every firing — 288 of them a day for a */5 job. Fail closed
                 # the way the import already does for outside-reach: the kernel refuses to spend
                 # that unattended, because nothing has said a body is needed.
-                raise ValueError(f"no decision model is available and this routine fires on '{cron}' "
+                raise ValueError(f"no decision model is available and this operation fires on '{cron}' "
                                  f"({self._per_day(cron)} times a day): a full lane would dispatch a body "
                                  "on every firing. Configure [classifier], give it as --command, or say "
                                  "--why an agent must do it")
@@ -1439,7 +1439,7 @@ class Kernel:
                 lane = cls["lane"]
             elif not why:
                 raise ValueError(f"the classifier says {cls['lane']} is enough ({cls['confidence']:.0%}); a {lane} "
-                                 "routine costs more on every firing: say --why")
+                                 "operation costs more on every firing: say --why")
         if why:
             notes.append(f"lane chosen by the Chair over the classifier: {why}")
         external = self._external(cls)
@@ -1461,7 +1461,7 @@ class Kernel:
         else:
             unjudged = False
         floor = max(2, grading.RISK_FLOOR.get(risk, 1), 3 if external else 0)
-        reasons = ["a routine runs unattended on a schedule: floor G2"]
+        reasons = ["an operation runs unattended on a schedule: floor G2"]
         pilot = self.config.get("pilot", {}).get("depts") or []
         if external and pilot and dept in pilot:
             floor = max(floor, 4)   # I5: in a pilot department the Chair approves outside-reach, job by job
@@ -1478,7 +1478,7 @@ class Kernel:
         if grading.RISK_FLOOR.get(risk, 1) > 2:
             reasons.append(f"risk={risk}: floor G{grading.RISK_FLOOR[risk]}")
         dept_id = self.org.dept(dept)["id"]
-        # The operational note (2026-10-25 red-team): a routine is a promise that something will run
+        # The operational note (2026-10-25 red-team): an operation is a promise that something will run
         # on a schedule, and the approver must know whether the department can keep it. The staffing
         # predicate mirrors the claim's reach — the proposal still lands (architecture ahead of
         # staffing is legitimate: the ventures import parked 26 of them), but the Chair approves
@@ -1492,7 +1492,7 @@ class Kernel:
                            "will reach nobody until one is (BYLAWS §6 [notify])")
         approver = self.org.resolve_approver({"dept_id": dept_id, "task_class": task_class}, floor, None)
         when = (f"on `{cron}`" if cron else
-                f"when a matching event fires it (`{event}`; the runtime that saw it calls `holon routine fire`, "
+                f"when a matching event fires it (`{event}`; the runtime that saw it calls `holon operation fire`, "
                 "once per cooldown)")
         steps = {"script": f"The kernel runs `{command}` in {workdir or 'its run directory'} {when}; checks and "
                            "the rubric judge each result.",
@@ -1500,8 +1500,8 @@ class Kernel:
                          "each result and a verifier sees the unsure ones.",
                  "full": f"{when[0].upper() + when[1:]}, a fresh piece of work is planned, approved, executed and verified."}[lane]
         return self.work.propose(
-            title=f"Routine: {title}", intent=intent, steps=steps,
-            apply={"kind": "routine", "cron": cron, "event": event,
+            title=f"Operation: {title}", intent=intent, steps=steps,
+            apply={"kind": "operation", "cron": cron, "event": event,
                    # I1: an outside-reach import — or one the kernel could not judge — lands OFF;
                    # the Chair enables it per job after review. One bulk approval must never
                    # light an outreach fleet.
@@ -1513,13 +1513,13 @@ class Kernel:
             acceptance="; ".join(rubric) if rubric else None, workdir=workdir, risk=risk, project_ref=project_ref,
             objective_id=objective_id)
 
-    def _apply_routine(self, a: dict) -> None:
+    def _apply_operation(self, a: dict) -> None:
         """On approval: the plan becomes a standing (recurring) plan, its schedule starts, and its playbook
         (protocol + rubric, version 1) is written into the department's skills, where refinement improves it.
-        The staffing gate (2026-10-25 red-team): a starts-on-approval routine (hand-written, or an
+        The staffing gate (2026-10-25 red-team): a starts-on-approval operation (hand-written, or an
         internal import) whose lane needs a body will not light in a department nobody staffs — the
         approval refuses inside its transaction rather than arm a clock nothing can serve. An
-        imported routine that parks OFF (I1) skips the gate: the enable gate holds it instead."""
+        imported operation that parks OFF (I1) skips the gate: the enable gate holds it instead."""
         self.wconn.execute("UPDATE tasks SET recurring=1 WHERE id=?", (a["_plan"],))
         plan = self.work.get(a["_plan"])
         src = self.work.get(plan["parent_id"])
@@ -1541,31 +1541,31 @@ class Kernel:
                              "outside-reach import: starts off, enabled per job by the Chair")
         slug, name = self._dept_slug(src["dept_id"]), body.get("playbook")
         if slug and name and not playbooks.read(self.skills, slug, name):
-            title = src["title"].removeprefix("Routine: ")
+            title = src["title"].removeprefix("Operation: ")
             rubric = body.get("rubric") or [src["acceptance"] or f"The result does what was asked: {src['intent'][:300]}",
                                             "The result says what was done and what was found, with evidence"]
             steps = [f"Run `{body['command']}` (the kernel does this; the protocol records why and what to check)"] \
                 if body.get("command") else [src["intent"]]
             playbooks.write(self.skills, slug, name, playbooks.render(name, title, src["intent"], steps, rubric))
-            self.work._event("skill", f"@{slug}/{name}", None, "changed", "playbook v1, with the routine's approval",
+            self.work._event("skill", f"@{slug}/{name}", None, "changed", "playbook v1, with the operation's approval",
                              actor="kernel")
 
-    def _routines_from_items(self, items: list[dict], approved_by: str | None, author: str) -> list[dict]:
-        """Routines a planner (in an approved decomposition) or a retro proposed. The decomposition's
-        decider also approves each routine when the routine's grade is theirs to decide; otherwise the
-        routine waits for its approver. A job the classifier judges deterministic becomes work to write its
+    def _operations_from_items(self, items: list[dict], approved_by: str | None, author: str) -> list[dict]:
+        """Operations a planner (in an approved decomposition) or a retro proposed. The decomposition's
+        decider also approves each operation when the operation's grade is theirs to decide; otherwise the
+        operation waits for its approver. A job the classifier judges deterministic becomes work to write its
         script instead, since a planner cannot approve code that does not exist yet."""
         out = []
         for c in items:
             dept = self._dept_slug(c["dept"]) if str(c["dept"]).startswith("dept_") else c["dept"]
             try:
-                a = self.add_routine(c["title"], c["intent"], dept=dept, cron=c["cron"], lane=c.get("lane"),
+                a = self.add_operation(c["title"], c["intent"], dept=dept, cron=c["cron"], lane=c.get("lane"),
                                      command=c.get("command"), rubric=c.get("rubric"), workdir=c.get("workdir"),
                                      task_class=c.get("task_class"), risk=c.get("risk") or "normal",
                                      objective_id=c.get("objective_id"), strict=False)
             except ValueError as e:
-                w = self.work.add_work(f"Make routine '{c['title']}' a script", f"{c['intent']}\n\n{e}. Write the "
-                                       "script in the department's reach, then propose the routine with its command.",
+                w = self.work.add_work(f"Make operation '{c['title']}' a script", f"{c['intent']}\n\n{e}. Write the "
+                                       "script in the department's reach, then propose the operation with its command.",
                                        dept=dept, parent_id=c.get("objective_id"), source="agent", requested_by=author,
                                        task_class=c.get("task_class"))
                 out.append({"script_work": w["id"], "title": c["title"]})
@@ -1577,14 +1577,14 @@ class Kernel:
                     self.decide(a["id"], "approve", f"approved with the decomposition by {approved_by}")
                 finally:
                     self.work.actor = actor
-                out.append({"routine": a["parent_id"], "title": c["title"], "approved": True})
+                out.append({"operation": a["parent_id"], "title": c["title"], "approved": True})
             else:
-                out.append({"routine": a["parent_id"], "title": c["title"], "approval": a["id"],
+                out.append({"operation": a["parent_id"], "title": c["title"], "approval": a["id"],
                             "approver": a["approver"]})
         return out
 
     def playbook_of(self, work: dict) -> dict | None:
-        """The playbook a work follows: its routine's, else its task class's in its department."""
+        """The playbook a work follows: its operation's, else its task class's in its department."""
         slug = self._dept_slug(work.get("dept_id"))
         if not slug:
             return None
@@ -1596,7 +1596,7 @@ class Kernel:
             name = playbooks.for_class(work["task_class"])
         return playbooks.read(self.skills, slug, name) if name else None
 
-    def routines(self) -> list[dict]:
+    def operations(self) -> list[dict]:
         out = []
         for s in self.schedules.list():
             if s["kind"] != "recurring":
@@ -1607,14 +1607,14 @@ class Kernel:
                 "SELECT count(*), sum(status='done'), sum(status='failed') FROM tasks WHERE stage IS NULL AND "
                 "requested_by=?", (f"recurring:{plan['id']}",)).fetchone()
             out.append({"schedule": s["id"], "enabled": bool(s["enabled"]), "cron": s["cron"], "plan": plan["id"],
-                        "title": self.work.get(plan["parent_id"])["title"].removeprefix("Routine: "),
+                        "title": self.work.get(plan["parent_id"])["title"].removeprefix("Operation: "),
                         "lane": body.get("lane") or "full", "command": body.get("command"),
                         "rubric": body.get("rubric") or [], "next_run_at": s["next_run_at"],
                         "fired": runs[0], "done": runs[1] or 0, "failed": runs[2] or 0})
         return out
 
     def rubric(self, work: dict) -> list[str]:
-        """What a result of this work is judged on: the routine's rubric, else its acceptance criteria."""
+        """What a result of this work is judged on: the operation's rubric, else its acceptance criteria."""
         plan = self.work.approved_plan(work["id"])
         r = ((plan or {}).get("output") or {"body": {}})["body"].get("rubric")
         return list(r) if r else [work["acceptance"] or f"The result does what was asked: {work['intent'][:400]}"]
@@ -1693,7 +1693,7 @@ class Kernel:
         return None
 
     def run_script(self, stage_id: str | None = None) -> dict | None:
-        """Run a ready script stage: the routine's approved command, in its workdir, by the kernel (no agent).
+        """Run a ready script stage: the operation's approved command, in its workdir, by the kernel (no agent).
         Its exit code is the outcome; the result goes through checks and the rubric judge like any other."""
         token, token_hash = security.new_token()
         got = self.work.claim(Claimant(), ["execute"], "script", stage_id, token_hash, kernel=True)
@@ -1959,8 +1959,8 @@ class Kernel:
         return out
 
     def fire_routine(self, schedule_id: str, payload: str | None = None) -> dict:
-        """H7: fire an event routine once per cooldown. The runtime that saw a matching event calls
-        this (a gateway, a webhook receiver — `holon routine fire`); Holon never matches events
+        """H7: fire an event operation once per cooldown. The runtime that saw a matching event calls
+        this (a gateway, a webhook receiver — `holon operation fire`); Holon never matches events
         itself. The payload rides on the firing's work as a message, where the executor's brief shows
         it. Cooldown first, then the same skip-if-open guard a cron firing has."""
         s = self.schedules.get(schedule_id)
@@ -2217,7 +2217,7 @@ class Kernel:
 
     @staticmethod
     def _cadence(cron: str | None) -> str:
-        """How often a routine fires, in words a reader can act on.
+        """How often an operation fires, in words a reader can act on.
 
         The Chair is authorising an unattended job that runs forever, so the cadence is the fact
         that decides whether it is worth approving: an `0 7 * * *` job is one agent session a day,
@@ -2238,22 +2238,22 @@ class Kernel:
     def _approve_line(self, e) -> str:
         """One approval, rendered so the Chair can decide without opening it.
 
-        What was rendered before: `approve? Routine: X (holon plan show tsk_<27 chars>)`. Three
+        What was rendered before: `approve? Operation: X (holon plan show tsk_<27 chars>)`. Three
         defects, each measured on the live instance:
         1. the id is a full Crockford-base32 ULID and the command beside it does an EXACT lookup,
            so one wrong character reads as "not found" with nothing offered to recover;
         2. the line carried no consequence, so 14 identically-shaped approvals each needed opening;
-        3. `approve? Routine: X` reads as a question about a routine, when what is being decided
+        3. `approve? Operation: X` reads as a question about an operation, when what is being decided
            is a plan, whose command is `plan approve`.
 
         The line now names what runs, how often, whether it reaches outside the organization (the
-        Chair's standing rule, and the reason a routine lands disabled), and the command that
+        Chair's standing rule, and the reason an operation lands disabled), and the command that
         decides it — `plan approve <id>`, so the line and its verb are the same thing.
         The trailing `(verb id)` is load-bearing: `digest_rows` parses it for the button twin, and a
         line ending in prose instead silently drops its button. Outside reach falls back to the
-        kernel's own `_external_by_name` when the classifier is off, so a routine that emails
+        kernel's own `_external_by_name` when the classifier is off, so an operation that emails
         applicants never reads as internal because a model was unavailable."""
-        name = (e["title"] or "").removeprefix("approve: ").removeprefix("Routine: ")
+        name = (e["title"] or "").removeprefix("approve: ").removeprefix("Operation: ")
         parent = self.wconn.execute("SELECT title, intent FROM tasks WHERE id=?", (e["parent_id"],)).fetchone()
         plan = self.work.plan_for_approval(e["id"])
         body = plan["output"].get("body") or {}
@@ -2264,12 +2264,12 @@ class Kernel:
         if external_p is None:
             # the classifier can be off, down or unsure; the outside-reach fact the Chair needs
             # is also derivable from the protocol's own words, which `_external_by_name` already
-            # reads for an import. Fall back to it rather than rendering nothing: a routine that
+            # reads for an import. Fall back to it rather than rendering nothing: an operation that
             # emails applicants must not read as internal because a model was unavailable.
             by_name, _ = self._external_by_name(name, (parent["intent"] if parent else "") or "")
             external_p = 1.0 if by_name else 0.0
         outside = external_p >= float(self.config["lanes"]["external_p_max"])
-        parts = [f"approve? routine {name}, {self._cadence(apply.get('cron'))}, {lane} lane"]
+        parts = [f"approve? operation {name}, {self._cadence(apply.get('cron'))}, {lane} lane"]
         if outside:
             parts.append(", reaches outside the organization")
         if apply.get("starts_disabled"):
@@ -2429,7 +2429,7 @@ class Kernel:
         return {"items": len(lines), "sent": ok}
 
     def _deliver(self) -> list[str]:
-        """Routines approved with `deliver`: each finished firing's result goes to the Chair through [notify]
+        """Operations approved with `deliver`: each finished firing's result goes to the Chair through [notify]
         (the legacy crons' digests to a chat thread). A delivery that fails is retried on the next heartbeat."""
         command = (self.config.get("notify") or {}).get("command")
         if not command:
@@ -2594,10 +2594,10 @@ class Kernel:
                                           "each change cites the evidence it answers")
         return {"refinement": w["id"], "playbook": name, "why": why}
 
-    # ── the objective loop: a pool of work and routines steered toward key results ──
+    # ── the objective loop: a pool of work and operations steered toward key results ──
     def add_objective(self, title: str, intent: str, *, dept: str, key_results: list[str],
                       project_ref: str | None = None, workdir: str | None = None) -> dict:
-        """An objective: its planner decomposes it into one-off work and routines; it stays open while its
+        """An objective: its planner decomposes it into one-off work and operations; it stays open while its
         pool runs, and its review reshapes the pool until the key results are met."""
         if not key_results:
             raise ValueError("an objective needs at least one key result (--key-result)")
@@ -2613,8 +2613,8 @@ class Kernel:
             "ORDER BY created_at", (oid,))]
         lines = [f"**{o['title']}** [{o['status']}]", "", "Key results:", o["acceptance"] or "(none)", "", "Work:"]
         lines += [f"- {k['title']} [{k['status']}, {k['lane']}]" for k in kids if k["task_class"] != "objective"] or ["- none"]
-        lines += ["", "Routines:"]
-        for r in self.routines():
+        lines += ["", "Operations:"]
+        for r in self.operations():
             src = self.work.get(self.work.get(r["plan"])["parent_id"])
             if src["objective_id"] != oid:
                 continue

@@ -11,7 +11,7 @@ department had to be built by hand.
 - `scripts/` → the script lane's commands.
 
 Dry-run by default. `--apply` creates the department and its routines, leaves the
-routines **unapproved**, and computes each routine's outside-reach check on the
+routines **unapproved**, and computes each operation's outside-reach check on the
 *fidelity-repaired* text — not the seven fields the old importer read.
 
 **The YAML reader is the risk.** The kernel is stdlib only (AGENTS.md law 1), so it
@@ -211,7 +211,7 @@ class VentureBuilder(KernelCase):
                          "a dry run creates nothing")
 
     def test_the_imported_protocols_keep_their_skills(self):
-        """The fidelity M1 bought: an imported routine carries the protocol's skills, so
+        """The fidelity M1 bought: an imported operation carries the protocol's skills, so
         the pool's own protocol is not lost in the move."""
         pool = self.pool(self.tmp)
         out = cli.venture_import(pool, "career", dry_run=True, k=self.k)
@@ -219,13 +219,13 @@ class VentureBuilder(KernelCase):
                            "the protocols carry their skills — 61 of 62 do in the real corpus")
 
     def test_an_apply_creates_the_department_and_leaves_the_routines_unapproved(self):
-        """An import is not an approval, and a routine that reached the schedule
+        """An import is not an approval, and a operation that reached the schedule
         unapproved would be the outside-reach import the kernel deliberately disables."""
         pool = self.pool(self.tmp)
         out = cli.venture_import(pool, "career", dry_run=False, k=self.k)
         self.assertTrue(any(d["slug"] == "career" for d in self.k.org.depts()),
                         "the department exists")
-        self.assertEqual(self.k.routines(), [], "and no routine is scheduled yet")
+        self.assertEqual(self.k.operations(), [], "and no operation is scheduled yet")
 
     def test_the_outreach_check_sees_the_repaired_text(self):
         """The Chair's standing rule: job and freelance work never sends outreach. The

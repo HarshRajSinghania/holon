@@ -47,7 +47,7 @@ class PatientFallback(KernelCase):
     def test_a_primary_that_is_down_does_not_leave_the_lane_unanswered(self):
         """The lane question is asked of the second endpoint when the first fails."""
         self.primary.status = 404
-        cls = self.k.classify("Routine: inbox-scanner-daily", "Scan the applicant inbox and reply")
+        cls = self.k.classify("Operation: inbox-scanner-daily", "Scan the applicant inbox and reply")
         self.assertEqual(cls["source"], "classifier", "a working second endpoint must be asked")
         self.assertEqual(cls["lane"], "script", "and its answer must be used")
         self.assertEqual(cls["confidence"], 0.95)
@@ -81,14 +81,14 @@ class PatientFallback(KernelCase):
         only the primary's error, on a config with a working second endpoint, sends the reader
         to fix the wrong thing."""
         self.primary.status = 404
-        self.k.classify("Routine: inbox-scanner-daily", "Scan the applicant inbox and reply")
+        self.k.classify("Operation: inbox-scanner-daily", "Scan the applicant inbox and reply")
         line = [x for x in self.k.pending_for_chair(0) if x.startswith("decision model unavailable")]
         self.assertEqual(len(line), 0, "nothing is unavailable: the second endpoint answered")
 
     def test_both_endpoints_down_still_takes_the_safe_default_and_says_why(self):
         self.primary.status = 404
         self.fallback.status = 500
-        cls = self.k.classify("Routine: inbox-scanner-daily", "Scan the inbox")
+        cls = self.k.classify("Operation: inbox-scanner-daily", "Scan the inbox")
         self.assertIsNone(cls["lane"])
         self.assertEqual(cls["source"], "failed")
         line = [x for x in self.k.pending_for_chair(0) if x.startswith("decision model unavailable")]
@@ -101,7 +101,7 @@ class PatientFallback(KernelCase):
         deadline, so it may wait too — but the timeout is the fallback's own, not the primary's."""
         self.primary.status = 404
         self.fallback.status = 200
-        self.k.classify("Routine: inbox-scanner-daily", "Scan the inbox")
+        self.k.classify("Operation: inbox-scanner-daily", "Scan the inbox")
         self.assertTrue(self.fallback.requests)
 
 

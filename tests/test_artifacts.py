@@ -77,7 +77,7 @@ class ArtifactPinning(KernelCase):
 class ArtifactGrading(unittest.TestCase):
     def test_an_artifact_outside_reach_raises_the_floor(self):
         """A6: grading walked `writes` and never looked at `artifacts` — a result claiming a
-        durable artifact beyond the department's reach graded as G1 routine. An absolute
+        durable artifact beyond the department's reach graded as G1 operation. An absolute
         artifact outside workdir+reach raises the floor with its reason; a relative one is
         workdir-relative, same as a relative write.
 
@@ -88,7 +88,7 @@ class ArtifactGrading(unittest.TestCase):
         base = grading.grade_plan(None, task, {"kind": "plan"}, None, reach=["/tmp/wd"])
         in_reach = grading.grade_plan(None, task, {"kind": "plan", "artifacts": ["/tmp/wd/x.md"]},
                                       None, reach=["/tmp/wd"])
-        self.assertEqual(in_reach["floor"], base["floor"], "an artifact inside the workdir is routine")
+        self.assertEqual(in_reach["floor"], base["floor"], "an artifact inside the workdir is operation")
         self.assertFalse(any("artifact" in r for r in in_reach["reasons"]), in_reach["reasons"])
         out = grading.grade_plan(None, task, {"kind": "plan", "artifacts": ["/elsewhere/x.md"]},
                                  None, reach=["/tmp/wd"])

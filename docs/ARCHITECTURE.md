@@ -181,7 +181,7 @@ graph TB
   WORK -->|produces| OUT["outputs + runs"]
   OUT -->|judged by| MEM["memory: what was learned"]
   OUT -->|shaped by| PB["playbooks: the protocol per job"]
-  WORK -->|repeats as| RTN["routines: the clock"]
+  WORK -->|repeats as| RTN["operations: the clock"]
   WORK -->|closed by| CHK["checks + verifiers"]
   ALL -->|watched by| DOC["doctor + lint"]
 ```

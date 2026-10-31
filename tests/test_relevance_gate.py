@@ -58,14 +58,14 @@ class RelevanceGateTest(KernelCase):
             self.assertIsNone(_FOREIGN_RUNTIME_RE.search(served), served)
 
     def test_the_import_command_names_the_refusal_in_the_survey(self):
-        from holon.cli import cmd_routine_import
+        from holon.cli import cmd_operation_import
         f = self._pool() / "cron-jobs" / "monitor.md"
         args = type("A", (), {"files": [str(f)], "dept": "eng", "apply": False, "json": True})()
         args.principal = type("P", (), {"kind": "chair", "actor": "chair"})()
         import io, contextlib
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            cmd_routine_import(args, self.k)
+            cmd_operation_import(args, self.k)
         rows = json.loads(buf.getvalue())
         err = (rows[0].get("error") or "").lower()
         self.assertIn("relevance", err, rows)
@@ -86,7 +86,7 @@ class RelevanceGateTest(KernelCase):
         row = venture_import(self.k, self._pool(), "legacy-ops", dry_run=False)
         reason = next((s["reason"] for s in row["skipped"] if s["title"] == "daily-live-monitor"), None)
         self.assertIsNotNone(reason, row)
-        self.assertEqual(0, row["routines"], row)
+        self.assertEqual(0, row["operations"], row)
 
     def test_a_pool_outside_the_instance_is_still_a_valid_import(self):
         """The workdir is NOT the gate: an imported department's scope roots are
@@ -98,12 +98,12 @@ class RelevanceGateTest(KernelCase):
         row = venture_import(self.k, self._pool(DOMESTIC, "disk-watch"), "pool-reach", dry_run=False)
         self.assertTrue(Path(row["pool"]).is_absolute())
         self.assertFalse(Path(row["pool"]).is_relative_to(self.home.root), "the fixture pool is outside")
-        self.assertEqual(1, row["routines"], row)
+        self.assertEqual(1, row["operations"], row)
 
     def test_a_routine_written_by_hand_is_not_fenced(self):
-        """The Chair's own `routine add` has no protocol to declare a foreign
+        """The Chair's own `operation add` has no protocol to declare a foreign
         runtime: the gate judges an import's declaration, not a person's command."""
-        r = self.k.add_routine("disk-watch", "record disk usage", dept="eng",
+        r = self.k.add_operation("disk-watch", "record disk usage", dept="eng",
                                cron="0 7 * * 1", imported=False)
         self.assertNotIn("relevance", json.dumps(r))
 

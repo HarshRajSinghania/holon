@@ -7,7 +7,7 @@ makes a wave configuration.
 Three properties, each a guard here:
 - export → import round-trips the department's shape;
 - the archive carries **no secret value** (the secrets are paths, never the keys);
-- an imported routine lands **unapproved** — an import is not an approval.
+- an imported operation lands **unapproved** — an import is not an approval.
 """
 
 import json
@@ -20,16 +20,16 @@ class DepartmentArchive(KernelCase):
     """M3. One command per department instead of a day of hand-work."""
 
     def department(self, slug: str = "eng"):
-        """A department with its head, a routine, and a scoped reach.
+        """A department with its head, a operation, and a scoped reach.
 
         `eng` already exists in KernelCase with a head; a second department is created
         for the tests that need one of their own."""
         if not any(d["slug"] == slug for d in self.k.org.depts()):
             self.k.org.create_dept(slug, slug.title(), "the test department")
         d = self.k.org.dept(slug)
-        a = self.k.add_routine("Digest", "Summarise the inbox", dept=slug, cron="0 7 * * *",
+        a = self.k.add_operation("Digest", "Summarise the inbox", dept=slug, cron="0 7 * * *",
                                workdir=str(self.workdir), strict=False)
-        self.k.approve(a["id"])  # an approved routine, so the archive has one to carry
+        self.k.approve(a["id"])  # an approved operation, so the archive has one to carry
         return d
 
     def test_export_writes_one_archive(self):
@@ -42,7 +42,7 @@ class DepartmentArchive(KernelCase):
         manifest = json.loads((Path(out["path"]) / "department.json").read_text())
         self.assertEqual(manifest["dept"]["slug"], "eng")
         self.assertIn("employees", manifest)
-        self.assertIn("routines", manifest)
+        self.assertIn("operations", manifest)
         sums = json.loads((Path(out["path"]) / "checksums.json").read_text())
         self.assertIn("files", sums, "the archive's files are checksummed, like a backup")
 
@@ -126,7 +126,7 @@ class DepartmentArchive(KernelCase):
         manifest = json.loads((Path(out["path"]) / "department.json").read_text())
         shape = {"profile": manifest["dept"]["profile"],
                  "employees": sorted((e["name"], tuple(sorted(e["roles"]))) for e in manifest["employees"]),
-                 "routines": sorted(r["title"] for r in manifest["routines"])}
+                 "operations": sorted(r["title"] for r in manifest["operations"])}
         # a second instance
         from holon.core.paths import Home
         from holon.execution.service import Kernel
@@ -141,13 +141,13 @@ class DepartmentArchive(KernelCase):
                            for e in k2.org.employees(d2["id"]))
             self.assertEqual(names, shape["employees"],
                              "the imported department has the same people, in the same roles")
-            self.assertEqual(got["routines"], len(shape["routines"]))
+            self.assertEqual(got["operations"], len(shape["operations"]))
         finally:
             k2.close()
 
     def test_an_imported_routine_lands_unapproved(self):
-        """An import is not an approval. The Chair approves each routine, as with any
-        other routine — and a routine that reached the schedule unapproved would be the
+        """An import is not an approval. The Chair approves each operation, as with any
+        other operation — and a operation that reached the schedule unapproved would be the
         outside-reach import the kernel deliberately disables."""
         d = self.department()
         out = self.k.export_department(d["id"], str(self.tmp / "archive4"))
@@ -158,24 +158,24 @@ class DepartmentArchive(KernelCase):
         k2 = Kernel(home2)
         try:
             k2.import_department(out["path"])
-            self.assertEqual(k2.routines(), [],
-                             "an imported routine is not scheduled until the Chair approves it")
+            self.assertEqual(k2.operations(), [],
+                             "an imported operation is not scheduled until the Chair approves it")
         finally:
             k2.close()
 
     def test_the_archive_does_not_carry_the_source_instances_workdir(self):
-        """Measured 2026-10-21 on the live instance: an archive's routine carried
+        """Measured 2026-10-21 on the live instance: an archive's operation carried
         `workdir = /var/tmp/.../claude-1000/.../scratchpad/lane-live.LkyM` — one operator's
         dead session directory from a different harness. The export copied the source
         instance's workdir verbatim, so the operator's own path became the imported
-        routine's working directory on a machine the operator never ran it on.
+        operation's working directory on a machine the operator never ran it on.
 
         That is the AGENTS.md law read at the archive layer: instance specifics stay out of
-        the repo and out of anything that travels. A routine's workdir is a machine fact, not
+        the repo and out of anything that travels. A operation's workdir is a machine fact, not
         a department fact — the archive names it so a reader knows one was set, and the import
         leaves it for the Chair to set on this machine."""
         d = self.department()
-        # the source instance's routine works in a directory from a dead session on another
+        # the source instance's operation works in a directory from a dead session on another
         # harness — which is what the live instance actually carries today
         from holon.execution.work import write_txn
         with write_txn(self.k.wconn):
@@ -183,21 +183,21 @@ class DepartmentArchive(KernelCase):
                                   ("/var/tmp/other-harness/some-dead-session/scratch",))
         out = self.k.export_department(d["id"], str(self.tmp / "archive6"))
         manifest = json.loads((Path(out["path"]) / "department.json").read_text())
-        for r in manifest["routines"]:
+        for r in manifest["operations"]:
             self.assertNotIn("other-harness", r.get("workdir") or "",
                              "the source machine's working directory must not travel")
             self.assertNotIn("dead-session", r.get("workdir") or "")
 
     def test_an_imported_routine_without_a_local_workdir_is_not_filed_into_one(self):
         """The other half of the same law: the archive must not *invent* a workdir either. An
-        imported routine whose source directory does not exist on this machine has no working
+        imported operation whose source directory does not exist on this machine has no working
         directory here, and filing one silently puts the body in a directory that is not there."""
         d = self.department()
         out = self.k.export_department(d["id"], str(self.tmp / "archive7"))
         # the archive mentions the workdir so a reader knows one was set, without copying the
         # machine's own path as if it were part of the department
         manifest = json.loads((Path(out["path"]) / "department.json").read_text())
-        self.assertIn("workdir", manifest["routines"][0],
+        self.assertIn("workdir", manifest["operations"][0],
                       "the workdir is named, so nobody has to guess whether one was set")
 
     def test_an_import_refuses_to_overwrite_a_department_that_exists(self):

@@ -93,7 +93,7 @@ handing it in can change the outcome.
 
 **Fast lane.** An execute run of `fast` work (BYLAWS §10) has no separate plan: the executor plans and
 acts in one session, lists the `writes` it made and any `external_effects`, and returns `noop` with
-`blockers` when the work is not routine after all (the work then goes through the full pipeline).
+`blockers` when the work is not operation after all (the work then goes through the full pipeline).
 Nothing changes for the harness: it is an execute stage like any other.
 
 A harness that cannot write files may print the object as the last JSON in its output (driver
@@ -160,7 +160,7 @@ harness that embeds it (the operant gateway's clock organ) — a successful `hol
 the unix seconds of that tick to `<home>/.clock/last_tick` (one integer, best-effort: a tick
 that cannot write it still did its work). Doctor reads the stamp: silent when fresh, a
 `heartbeat.stale` warning after three cadences without a word (6+ minutes at the 2-minute
-cadence), because a dead heartbeat means due routines never fire, leases never renew and held
+cadence), because a dead heartbeat means due operations never fire, leases never renew and held
 results are never handed in — and no other check sees that.
 
 ## 6. Identity
@@ -239,7 +239,7 @@ is published there (migration `memory/0003`); open or attach `memory.db` read-on
 - `api_approvals` — pending approvals: id, title, department, grade, approver, risk, plan
   (the plan output JSON), created_at
 - `api_messages` — unacked messages: id, ts, sender, to_ref, kind, task_id, body
-- `api_triggers` — routine triggers: id, trigger_kind ('cron' or 'event' (H7)),
+- `api_triggers` — operation triggers: id, trigger_kind ('cron' or 'event' (H7)),
   pattern, department, employee, enabled, failure_streak, next_run_at
 - `api_units` — the synced bylaws units: slug, charter, category, tier, owner, synced_at (§14)
 - `api_services` — the services units offer: unit, service, command (the entry point), accepts,
@@ -358,18 +358,18 @@ the claim; a supervisor that runs the body as itself defeats the trust boundary,
 
 ## 13. Event triggers (H7)
 
-A routine may fire on events instead of a clock: `holon routine add … --on event:<pattern>`. The
+A operation may fire on events instead of a clock: `holon operation add … --on event:<pattern>`. The
 runtime that sees an event (a gateway, a webhook receiver) reads `api_triggers` (§9), matches
 `event` rows' patterns against it, and calls:
 
 ```sh
-holon routine fire <schedule_id> --payload 'what the event carried'
+holon operation fire <schedule_id> --payload 'what the event carried'
 ```
 
 Holon never matches events itself. Firing is at most once per `[events] cooldown_s` (BYLAWS §6),
 then the same skip-if-open rule a cron firing has: slow work never piles up. The payload rides on
 the firing's work as a message, where the executor's brief shows it as **external content —
-data, not instructions**. A webhook that many systems must react to is one routine per reaction,
+data, not instructions**. A webhook that many systems must react to is one operation per reaction,
 each with its own pattern and cooldown.
 
 `--payload` takes the text **literally**: never a file reference. A runtime relaying channel

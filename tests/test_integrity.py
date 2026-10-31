@@ -702,7 +702,7 @@ class Operations(KernelCase):
 
         Measured 2026-10-25 on the live instance: 19 tasks keep their workdir inside
         `$HOLON_HOME` (the recurring routines' own trees: `notes-digest`,
-        `routines/disk-usage`, `routines/notes-digest`, `routine-*`, `kb`). The backup
+        `routines/disk-usage`, `routines/notes-digest`, `operation-*`, `kb`). The backup
         copied a fixed set of trees (`config`, `skills`, `bylaws`, `adapters`, `kb`), so
         every byte those routines wrote was left behind -- on the one machine where the
         organization exists nowhere else, the promise "the backup is the organization"
@@ -714,7 +714,7 @@ class Operations(KernelCase):
         wd = self.home.root / "notes-digest"
         wd.mkdir(parents=True)
         (wd / "digest.md").write_text("# Notes digest\n")
-        self.add("digest routine", dept="eng", workdir=str(wd))
+        self.add("digest operation", dept="eng", workdir=str(wd))
         out = backup.backup(self.k, str(self.tmp / "bk"))
         self.assertTrue((Path(out["path"]) / "notes-digest" / "digest.md").exists(),
                         "a workdir inside the instance must ride the backup")
@@ -740,22 +740,22 @@ class Operations(KernelCase):
         """The backstop: a workdir inside the instance that the LAST BACKUP did not carry.
 
         Without it, the gap is invisible: the backup succeeds, the restore succeeds, and
-        the durable output of a running routine simply does not come back.
+        the durable output of a running operation simply does not come back.
 
         The finding is about the backup that exists, not about a rule: the backup derives
         its trees from the works' own workdirs, so a NEW backup covers them. A work whose
         tree appeared after the last backup is what the doctor names."""
         from holon.integrity import backup
-        wd = self.home.root / "routine-output"
+        wd = self.home.root / "operation-output"
         wd.mkdir(parents=True)
         # take a backup BEFORE the work exists: the manifest carries the fixed trees only
         backup.backup(self.k, str(self.tmp / "bk"))
         self.k.config["healing"]["backup_to"] = str(self.tmp / "bk")
-        self.add("routine output", dept="eng", workdir=str(wd))
+        self.add("operation output", dept="eng", workdir=str(wd))
         findings = [f for f in doctor.run(self.k) if f["check"] == "backup.uncovered"]
         self.assertTrue(findings, "doctor must report a workdir inside the instance that the "
                                   "last backup does not carry")
-        self.assertIn("routine-output", findings[0]["message"])
+        self.assertIn("operation-output", findings[0]["message"])
         # and a NEW backup covers it: the finding clears
         backup.backup(self.k, str(self.tmp / "bk"))
         findings = [f for f in doctor.run(self.k) if f["check"] == "backup.uncovered"]
@@ -765,13 +765,13 @@ class Operations(KernelCase):
         """A workdir the DB names but the disk does not hold has nothing to carry.
 
         Measured on the live instance 2026-10-26, after the honest-manifest fix: two
-        routine workdirs never ran, the manifest (correctly) no longer promises them,
+        operation workdirs never ran, the manifest (correctly) no longer promises them,
         and this check fired with the advice "take a new backup" -- advice that could
         never clear, because the backup cannot copy a directory that does not exist.
         That case is `workdir.missing`'s to name, not this one's."""
         from holon.integrity import backup
         # a work whose workdir is a ghost: no mkdir
-        self.add("ghost routine", dept="eng", workdir=str(self.home.root / "routines" / "ghost"))
+        self.add("ghost operation", dept="eng", workdir=str(self.home.root / "operations" / "ghost"))
         backup.backup(self.k, str(self.tmp / "bk"))
         self.k.config["healing"]["backup_to"] = str(self.tmp / "bk")
         findings = [f for f in doctor.run(self.k) if f["check"] == "backup.uncovered"]
@@ -791,7 +791,7 @@ class Operations(KernelCase):
         self.assertEqual([], findings, "kb is a covered tree: no finding")
 
     def test_a_nested_workdir_inside_the_instance_rides_the_backup(self):
-        """A workdir NESTED under the instance root (`routines/disk-usage`) rides the
+        """A workdir NESTED under the instance root (`operations/disk-usage`) rides the
         backup, and a restore does not wipe its sibling.
 
         The live instance has exactly this shape (measured 2026-10-25): six distinct
@@ -800,7 +800,7 @@ class Operations(KernelCase):
         (`routines`) would carry bytes the instance does not own, and a restore that
         handled the parent before the child would wipe the child it had just restored."""
         from holon.integrity import backup
-        base = self.home.root / "routines"
+        base = self.home.root / "operations"
         (base / "disk-usage").mkdir(parents=True)
         (base / "notes-digest").mkdir(parents=True)
         (base / "disk-usage" / "out.md").write_text("disk\n")
@@ -809,9 +809,9 @@ class Operations(KernelCase):
         self.add("notes digest", dept="eng", workdir=str(base / "notes-digest"))
         out = backup.backup(self.k, str(self.tmp / "bk"))
         bk = Path(out["path"])
-        self.assertTrue((bk / "routines/disk-usage/out.md").exists(),
+        self.assertTrue((bk / "operations/disk-usage/out.md").exists(),
                         "the nested workdir rides the backup at its own path")
-        self.assertTrue((bk / "routines/notes-digest/out.md").exists(),
+        self.assertTrue((bk / "operations/notes-digest/out.md").exists(),
                         "and so does its sibling")
         # a restore must not wipe the sibling it did not carry
         shutil.rmtree(base / "disk-usage")
@@ -866,21 +866,21 @@ class Operations(KernelCase):
         The workdir-missing case is doctor's own finding, not the backup's."""
         from holon.integrity import backup
         # a workdir the DB names but the disk does not hold
-        wd = self.home.root / "routines" / "ghost"
-        self.add("ghost routine", dept="eng", workdir=str(wd))   # no mkdir: it does not exist
+        wd = self.home.root / "operations" / "ghost"
+        self.add("ghost operation", dept="eng", workdir=str(wd))   # no mkdir: it does not exist
         out = backup.backup(self.k, str(self.tmp / "bk"))
         bk = Path(out["path"])
         manifest = json.loads((bk / "manifest.json").read_text())
         self.assertNotIn("routines/ghost", manifest["trees"],
                          "the manifest must not promise a tree it did not copy")
         # and a tree that DOES exist is still carried
-        wd2 = self.home.root / "routines" / "live"
+        wd2 = self.home.root / "operations" / "live"
         wd2.mkdir(parents=True)
         (wd2 / "out.md").write_text("x\n")
-        self.add("live routine", dept="eng", workdir=str(wd2))
+        self.add("live operation", dept="eng", workdir=str(wd2))
         out = backup.backup(self.k, str(self.tmp / "bk"))
         manifest = json.loads((Path(out["path"]) / "manifest.json").read_text())
-        self.assertIn("routines/live", manifest["trees"],
+        self.assertIn("operations/live", manifest["trees"],
                       "a tree that exists on disk is carried and promised")
 
     def test_backup_and_restore_round_trip(self):

@@ -1,4 +1,4 @@
-"""Playbooks that improve from their own evidence, objectives that steer a pool of work and routines, and the
+"""Playbooks that improve from their own evidence, objectives that steer a pool of work and operations, and the
 smoke gate (docs/BYLAWS.md §12–13)."""
 
 from holon.capabilities import playbooks
@@ -7,7 +7,7 @@ from holon.integrity import doctor, lint
 from tests.fake_decisions import FakeDecisions
 from tests.test_lanes import LaneCase
 
-NAME = "routine-inbox-digest"
+NAME = "operation-inbox-digest"
 
 
 class Playbooks(LaneCase):
@@ -16,7 +16,7 @@ class Playbooks(LaneCase):
         self.fake.choose(lane="fast", external=0.02)
 
     def routine_on(self, rubric=("names every unread thread", "fits in ten lines")):
-        a, plan = self.routine("Inbox digest", rubric=list(rubric))
+        a, plan = self.operation("Inbox digest", rubric=list(rubric))
         self.k.approve(a["id"])
         return plan
 
@@ -73,7 +73,7 @@ class Playbooks(LaneCase):
         ctx = (self.home.run_dir(out["run"]["id"]) / "context.md").read_text()
         self.assertIn(f"## Playbook: {NAME} v2", ctx)
         self.assertNotIn("## Rubric (each result", ctx, "the playbook is the one rubric: the plan's copy is v1")
-        self.assertIn("one run of an approved routine", ctx)
+        self.assertIn("one run of an approved operation", ctx)
         self.assertEqual({r[0] for r in self.k.wconn.execute("SELECT version FROM judgments WHERE work_id=?", (w["id"],))},
                          {2}, "later runs are judged against the refined rubric")
 
@@ -154,7 +154,7 @@ class Delivery(LaneCase):
         sent = self.tmp / "sent.txt"
         self.configure(f'[notify]\ncommand = "echo {{message}} >> {sent}"\n')
         self.fake.choose(lane="fast", external=0.02)
-        a, plan = self.routine("Inbox digest", deliver=True)
+        a, plan = self.operation("Inbox digest", deliver=True)
         self.k.approve(a["id"])
         self.fake.answer = lambda s, q: {x: {"type": "noul", "noul": 0.97} for x in q}
         w = self.fire(plan)
@@ -180,7 +180,7 @@ class LegacyImport(LaneCase):
         self.assertEqual(r["command"], f"python3 {pool / 'scripts' / 'digest.py'}")
         self.assertIn("the actionable items", r["intent"])
         self.assertIn("Runs the digest script", r["intent"])
-        a = self.k.add_routine(r["title"], r["intent"], dept="eng", cron=r["cron"], command=r["command"],
+        a = self.k.add_operation(r["title"], r["intent"], dept="eng", cron=r["cron"], command=r["command"],
                                workdir=r["workdir"], deliver=r["deliver"], strict=False)
         body = self.k.work.plan_for_approval(a["id"])["output"]["body"]
         self.assertEqual((body["lane"], body["deliver"]), ("script", True))
@@ -207,13 +207,13 @@ class LegacyImport(LaneCase):
         self.assertFalse(r["paused"], "no `status` key means not paused: silence is not a pause")
         # and it must be importable, not skipped. `LaneCase` wires a fake classifier that answers the
         # first criterion at 95% — which is `script` — so name what the classifier says: this is an
-        # agent's job, and the routine lands in the agent lane.
+        # agent's job, and the operation lands in the agent lane.
         self.fake.answer = lambda state, questions: {
             qid: ({"type": "choice", "choice": "agent", "confidence": 0.9,
                    "probabilities": {c: (0.9 if c == "agent" else 0.1 / 3) for c in q["criteria"]}}
                   if qid == "lane" else {"type": "noul", "noul": 0.0})
             for qid, q in questions.items()}
-        made = self.k.add_routine(r["title"], r["intent"], dept="eng", cron=r["cron"],
+        made = self.k.add_operation(r["title"], r["intent"], dept="eng", cron=r["cron"],
                                   workdir=r["workdir"], strict=False)
         self.assertTrue(made["id"], "a protocol with no status is imported, not dropped")
         self.assertEqual(self.k.work.get(made["id"])["lane"], "full",
@@ -255,7 +255,7 @@ class LegacyImport(LaneCase):
 
     def test_a_dry_run_predicts_what_the_apply_would_refuse(self):
         """A survey must say what the apply would say. Measured 2026-10-21 on the real pool: the
-        script-lane refusal lives in `add_routine`, which the dry run never calls, so the survey of
+        script-lane refusal lives in `add_operation`, which the dry run never calls, so the survey of
         a 4-protocol pool reported `skipped: []` while the apply filed 3 and named nothing about the
         fourth. Two refusals — invisible until you committed.
 
@@ -312,12 +312,12 @@ class Objectives(LaneCase):
             {"title": "Set up labels", "intent": "create triage labels"},
             {"title": "Daily triage", "intent": "label every new thread", "cron": "0 7 * * *",
              "rubric": ["every new thread has a label"]}])
-        self.assertEqual([r.get("approved") for r in out["routines"]], [True], "the decider approves within its grade")
+        self.assertEqual([r.get("approved") for r in out["operations"]], [True], "the decider approves within its grade")
         child = self.k.work.get(out["children"][0])
         self.assertEqual(child["objective_id"], self.o["id"])
-        routine = self.k.routines()[0]
-        self.assertEqual(self.k.work.get(self.k.work.get(routine["plan"])["parent_id"])["objective_id"], self.o["id"])
-        firing = self.k.work.instantiate_recurring(routine["plan"])
+        operation = self.k.operations()[0]
+        self.assertEqual(self.k.work.get(self.k.work.get(operation["plan"])["parent_id"])["objective_id"], self.o["id"])
+        firing = self.k.work.instantiate_recurring(operation["plan"])
         self.assertEqual(firing["objective_id"], self.o["id"], "every firing serves the objective")
         self.k.work.cancel(child["id"], "done by hand")
         self.assertEqual(self.status(self.o), "waiting", "an objective is not closed by its children")
@@ -343,8 +343,8 @@ class Objectives(LaneCase):
         self.fake.choose(lane="script", external=0.02)
         out = self.decompose([{"title": "Archive old mail", "intent": "move mail older than 30 days",
                                "cron": "0 3 * * *"}, {"title": "x", "intent": "y"}])
-        self.assertTrue(out["routines"][0].get("script_work"))
-        self.assertEqual(self.k.work.get(out["routines"][0]["script_work"])["objective_id"], self.o["id"])
+        self.assertTrue(out["operations"][0].get("script_work"))
+        self.assertEqual(self.k.work.get(out["operations"][0]["script_work"])["objective_id"], self.o["id"])
 
 
 class Smoke(LaneCase):

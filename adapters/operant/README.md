@@ -16,7 +16,7 @@ directory is the only place that knows operant exists. It implements the adapter
 ## Cast import (H9, phase G)
 
 Operant's nine seeded seats map onto Holon departments, roles and kernel mechanisms
-(ORG-LAYER-DISPOSITION.md §5 in operant's docs), and their cron jobs re-propose as routines
+(ORG-LAYER-DISPOSITION.md §5 in operant's docs), and their cron jobs re-propose as operations
 through the classifier:
 
 ```sh
@@ -27,7 +27,7 @@ python3 adapters/operant/import-cast.py --apply       # hire the seat employees,
 #   an agent cadence ≥ 12×/day is flagged for review before you approve it.
 ```
 
-premiere and chief-of-staff become executive routines with `--deliver`; governor's governance
+premiere and chief-of-staff become executive operations with `--deliver`; governor's governance
 digest lands in executive; identity-warden's audit lands in `it`; compass and chief-of-staff
 are hired as executive employees (the seat's charter is the job description). crew-chief,
 hrmaster, dispatcher and dp-the-program are already kernel mechanisms — the importer lists

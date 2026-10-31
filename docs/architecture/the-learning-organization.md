@@ -48,7 +48,7 @@ graph TB
     VERD --> PB
     PB -->|the next version's job| RUN
     DEPT --> OBJ
-    OBJ -->|new work, new routines| RUN
+    OBJ -->|new work, new operations| RUN
     DEPT --> COMP
 ```
 
@@ -93,7 +93,7 @@ without it being measured.
 
 ### Objective and company — the longest cadence
 
-An objective is decomposed into work and routines and reviewed against its key results until met.
+An objective is decomposed into work and operations and reviewed against its key results until met.
 The company loop — on request — takes department metrics and audit samples and produces bylaws and
 charter changes, **approved like any other work**. The organization changes itself only through its
 own pipeline (INTENT design law 6).

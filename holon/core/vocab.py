@@ -39,7 +39,7 @@ LANES = ("script", "fast", "full")
 #
 # Measured on the live instance, 2026-10-31: an agent run spends ~173K input tokens, and the
 # importable revenue operations declare 37.4 agent fires a day (~13M tokens/day) against 5
-# script-only routines that cost nothing. A `branch_one` is the construct that closes that gap:
+# script-only operations that cost nothing. A `branch_one` is the construct that closes that gap:
 # run the free script first, and wake a body only on the days the script came back empty.
 #
 # The loop kinds (for_loop, while_loop) are ABSENT ON PURPOSE, and the guard

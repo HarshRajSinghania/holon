@@ -317,9 +317,9 @@ def run(k) -> list[dict]:
 
     # a work's workdir that no longer exists: the driver falls back to the run directory, so the
     # body runs against a directory with none of the inputs its plan names (measured 2026-10-21 on a
-    # live instance: a recurring routine pointed at a scratchpad from a retired harness era, its body
+    # live instance: a recurring operation pointed at a scratchpad from a retired harness era, its body
     # spun on a dead path for an hour, and the work was only recovered by the lease sweep). Warn
-    # rather than error: the run still works, but the job the routine was hired for does not.
+    # rather than error: the run still works, but the job the operation was hired for does not.
     for r in q("SELECT id, title, workdir FROM tasks WHERE stage IS NOT NULL AND status='ready' "
                "AND workdir IS NOT NULL AND workdir<>''"):
         if not Path(r[2]).is_dir():
@@ -328,10 +328,10 @@ def run(k) -> list[dict]:
                 "its run directory instead, with none of the inputs the plan expects")
 
     # A workdir INSIDE the instance that the LAST BACKUP does not carry (2026-10-25): the
-    # durable output of a running routine would not ride the backup, on the one machine where
+    # durable output of a running operation would not ride the backup, on the one machine where
     # the organization exists nowhere else. Measured on the live instance: 19 tasks keep their
-    # workdir under `$HOLON_HOME`, and the backup's fixed tree set named none of the routine
-    # trees -- so what those routines wrote was left behind, silently, by a backup that
+    # workdir under `$HOLON_HOME`, and the backup's fixed tree set named none of the operation
+    # trees -- so what those operations wrote was left behind, silently, by a backup that
     # reported success.
     #
     # The backup now derives its trees from the works' own workdirs, so a backup taken NOW
@@ -375,7 +375,7 @@ def run(k) -> list[dict]:
             wanted = {t for t in _backup.in_home_workdirs(k)
                       if (k.home.root / t).is_dir()}
             # **A workdir that is not on disk has nothing to carry** (2026-10-26): the live
-            # instance names two routine workdirs that never ran, and the honest manifest
+            # instance names two operation workdirs that never ran, and the honest manifest
             # (fixed the same day) no longer lists them -- so this check fired with the
             # advice "take a new backup", which would never clear, because the backup
             # cannot copy a directory that does not exist. That case is `workdir.missing`'s
@@ -384,7 +384,7 @@ def run(k) -> list[dict]:
             for tree in sorted(wanted - carried):
                 add("warning", "backup.uncovered",
                     f"{tree}/ is inside the instance and a work names it as its workdir, but the last "
-                    f"backup ({latest[-1].name}) does not carry it: what the routine writes there does "
+                    f"backup ({latest[-1].name}) does not carry it: what the operation writes there does "
                     "not ride `holon backup` -- take a new backup, or move the workdir outside the "
                     "instance")
 
@@ -409,13 +409,13 @@ def run(k) -> list[dict]:
         lane = body.get("lane") or "full"
         if unstaffed_stages(w, r[1], lane):
             add("error", "schedule.unstaffed",
-                f"enabled schedule {r[0]} ({r[3].removeprefix('Routine: ')}, lane {lane}): "
+                f"enabled schedule {r[0]} ({r[3].removeprefix('Operation: ')}, lane {lane}): "
                 + staffing_note(w, r[1], lane, k.home))
         if lane == "script" and body.get("command"):
             wd = r[4]
             if wd and not Path(wd).is_dir():
                 add("warning", "schedule.workdir",
-                    f"enabled script schedule {r[0]} ({r[3].removeprefix('Routine: ')}) names workdir "
+                    f"enabled script schedule {r[0]} ({r[3].removeprefix('Operation: ')}) names workdir "
                     f"{wd!r}, which does not exist: the kernel will run its command in the run "
                     "directory instead (F6, 2026-10-25)")
 
@@ -521,7 +521,7 @@ def run(k) -> list[dict]:
     _vocab = {"config", "execution", "capabilities", "bylaws", "skills", "kb", "genome",
               "adapters", "backups", "ventures", "governance", ".clock", "ad", "isolation"}
     # A work's workdir may sit *inside* a root directory no work names directly — the recurring
-    # plans point at `<root>/routines/<plan>`, and `routines/` is declared by that use. So every
+    # plans point at `<root>/operations/<plan>`, and `operations/` is declared by that use. So every
     # ancestor from the workdir up to the instance root is declared, not only the leaf.
     used = set()
     for r in q("SELECT workdir FROM tasks WHERE workdir IS NOT NULL AND workdir<>''"):
@@ -583,7 +583,7 @@ def run(k) -> list[dict]:
                 add("warning", "heartbeat.stale",
                     f"the heartbeat's last tick stamp (.clock/last_tick) is {int(age_min)} minutes old: the "
                     "clock (`holon tick` every 2 minutes — the systemd timer or the gateway's clock organ) has "
-                    "stopped, so due routines never fire and expired leases never renew (restart it, and see the "
+                    "stopped, so due operations never fire and expired leases never renew (restart it, and see the "
                     "tick's errors in the journal / the gateway's log)")
         except (ValueError, OSError):
             add("warning", "heartbeat.stale",

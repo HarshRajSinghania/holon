@@ -7,7 +7,7 @@ agent_user` set (docs/BYLAWS.md §11):
   runner  a small service running AS THE AGENT USER (installed once by root). The kernel sends it a
           command, a working directory and the run's environment; it starts the process, reports its
           output and exit code, and stops it when the kernel says the run is over. Harnesses, machine
-          checks and script routines all start here, so nothing an agent wrote runs as the kernel.
+          checks and script operations all start here, so nothing an agent wrote runs as the kernel.
   broker  a small service running AS THE KERNEL'S USER (`holon broker`). An agent's `holon` command
           (and `holon mcp`) sends its argv and its run token or employee key here instead of opening
           the databases. The broker authenticates the token, never the Chair key, allows only the

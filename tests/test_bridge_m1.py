@@ -1,15 +1,15 @@
 """Tests first for the bridge plan's M1 — import fidelity.
 
-`holon routine import` reads 7 of the 33 frontmatter fields the 62 venture protocols
+`holon operation import` reads 7 of the 33 frontmatter fields the 62 venture protocols
 carry and silently drops 26. The loss that matters is `skills`: every one of the 62
 carries it, and without it "run the resume-system skill on this input" becomes
 "summarise the inbox" — a different job, imported as if it were the same one.
 
 M1 has three parts, and each is guarded here:
-1. **Provenance, always.** Every imported routine names its source protocol and every
+1. **Provenance, always.** Every imported operation names its source protocol and every
    key that was read, so nothing is silently lost and a later mechanism can read it.
 2. **First-class where the kernel has a home.** `skills` and `enabled_toolsets` are the
-   routine's protocol, and a routine already carries a **playbook** — a versioned
+   operation's protocol, and a operation already carries a **playbook** — a versioned
    protocol with a rubric, refined by the kernel's own loop from run outcomes.
 3. **A schema test**, so the class of defect cannot recur with a new field.
 """
@@ -72,7 +72,7 @@ class ImportKeepsWhatItReads(KernelCase):
 
     def test_no_frontmatter_key_is_silently_dropped(self):
         """The class of defect, in general: the importer reads a schema and discards
-        keys. Every key the protocol carries must appear either as a routine field or in
+        keys. Every key the protocol carries must appear either as a operation field or in
         the provenance the import writes."""
         p = self.protocol()
         row = cli.legacy_cron(p)
@@ -95,17 +95,17 @@ class ImportKeepsWhatItReads(KernelCase):
             self.assertIn(key, row2["provenance"]["fields"], f"the import dropped {key}")
 
     def test_the_provenance_names_the_source_protocol(self):
-        """A routine that came from a protocol must say which one, so a reader can go
+        """A operation that came from a protocol must say which one, so a reader can go
         back to it — and so the Chair can see what was imported."""
         p = self.protocol()
         row = cli.legacy_cron(p)
         self.assertEqual(row["provenance"]["source"], str(p))
         self.assertIn("job-loop-p2-score.md", row["provenance"]["source"])
         self.assertIn("job-loop-p2-score", row["intent"],
-                      "the routine's intent names the protocol it came from")
+                      "the operation's intent names the protocol it came from")
 
     def test_the_skills_become_the_routines_playbook_not_free_text(self):
-        """A routine already carries a playbook — a versioned protocol with a rubric,
+        """A operation already carries a playbook — a versioned protocol with a rubric,
         refined by the kernel's loop. The source's `skills` is exactly that, and it
         belongs there rather than in the intent's prose."""
         p = self.protocol()
@@ -116,19 +116,19 @@ class ImportKeepsWhatItReads(KernelCase):
                          "the tool boundary the pool trusted is carried as a field")
 
     def test_the_imported_routine_gets_a_playbook_naming_its_skills(self):
-        """The end-to-end shape: an imported routine's playbook says which skills run
+        """The end-to-end shape: an imported operation's playbook says which skills run
         it, so a body that loads the playbook knows the protocol."""
         p = self.protocol()
-        a = self.k.add_routine("job-loop-p2-score", cli.legacy_cron(p)["intent"], dept="eng",
+        a = self.k.add_operation("job-loop-p2-score", cli.legacy_cron(p)["intent"], dept="eng",
                                cron="15 */4 * * *", workdir=str(p.parent.parent), strict=False, imported=True)
         self.assertIsNotNone(a)
-        # the routine's playbook is written when the routine is approved, so approve it
+        # the operation's playbook is written when the operation is approved, so approve it
         plan = self.k.work.plan_for_approval(a["id"])
-        self.assertIsNotNone(plan, "the routine went to its approver")
+        self.assertIsNotNone(plan, "the operation went to its approver")
         self.k.approve(plan["id"])
         from holon.capabilities import playbooks
         pb = playbooks.read(self.k.skills, "eng", playbooks.for_routine("job-loop-p2-score"))
-        self.assertIsNotNone(pb, "the approved routine carries a playbook")
+        self.assertIsNotNone(pb, "the approved operation carries a playbook")
         self.assertIn("resume-system", pb["protocol"],
                       "the playbook names the skills the protocol runs")
 
@@ -142,7 +142,7 @@ class ImportKeepsWhatItReads(KernelCase):
 
     def test_a_paused_protocol_stays_paused(self):
         """The lifecycle keys are read: a decommissioned or paused protocol must not
-        land as a live routine."""
+        land as a live operation."""
         body = PROTOCOL.replace('status: "active"', 'status: "decommissioned"')
         row = cli.legacy_cron(self.protocol(body))
         self.assertTrue(row["paused"], "a decommissioned protocol stays paused")

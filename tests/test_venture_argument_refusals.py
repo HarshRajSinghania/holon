@@ -1,6 +1,6 @@
 """Tests for the dry run that cannot see the argument refusals it is about to make.
 
-The defect, A3. `add_routine` raises eight times. A dry run of
+The defect, A3. `add_operation` raises eight times. A dry run of
 `venture_import` never called it, and `_would_refuse` re-derived only the
 refusals that come from the decision model's `cls`. So the five refusals that are pure
 argument validation — a trigger named twice, an event that is not spelled
@@ -145,7 +145,7 @@ class ArgumentRefusalsAreReported(KernelCase):
 class ModelDependentRefusalsArePredicted(KernelCase):
     """The refusals A3 filed as unpredictable, measured instead of assumed.
 
-    A3's outline row split `add_routine`'s eight raises into "five pure" and "three that
+    A3's outline row split `add_operation`'s eight raises into "five pure" and "three that
     depend on the decision model", and concluded the second three could not be reported
     when the model was off. **Measured 2026-10-24T22:40, that conclusion was wrong, and
     it is the row's own gate that disproves it:** `_would_refuse` already calls
@@ -155,10 +155,10 @@ class ModelDependentRefusalsArePredicted(KernelCase):
     predicted, and each guard below measures it against the apply.
 
     What is actually true is narrower and stronger: **two of the three are unreachable
-    from an import at all.** `add_routine` raises "the classifier says X is enough" only
+    from an import at all.** `add_operation` raises "the classifier says X is enough" only
     behind `elif not why` in the `strict=True` branch, and measured across every call
     site, four of five pass `strict=False` (`ventures.py:545`, `cli.py:946`,
-    `service.py:1497`, `portability.py:163`); only the interactive `holon routine add`
+    `service.py:1497`, `portability.py:163`); only the interactive `holon operation add`
     (`cli.py:782`) takes the default, and it has no dry run to be unfaithful to. So an
     import cannot raise it, which means a dry run that cannot predict it is not a gap.
 
@@ -187,7 +187,7 @@ class ModelDependentRefusalsArePredicted(KernelCase):
         app = cli.venture_import(pool, "t", dry_run=False, k=self.k)
         self.assertIn("frequent", [s["title"] for s in dry["skipped"]],
                       "the survey names the cadence refusal with the model off")
-        self.assertEqual(app["routines"], 0)
+        self.assertEqual(app["operations"], 0)
         self.assertEqual(sorted(s["title"] for s in app["skipped"]),
                          sorted(s["title"] for s in dry["skipped"]),
                          "the survey's skipped set equals the apply's")
@@ -202,7 +202,7 @@ class ModelDependentRefusalsArePredicted(KernelCase):
         dry = cli.venture_import(pool, "t", dry_run=True, k=self.k)
         app = cli.venture_import(pool, "t", dry_run=False, k=self.k)
         self.assertIn("looks deterministic", self._reason(dry, "scriptish"))
-        self.assertEqual(app["routines"], 0)
+        self.assertEqual(app["operations"], 0)
 
     def test_a_mixed_pool_predicts_the_apply_exactly(self):
         """A3's gate as the row states it: the dry run's skipped count equals the
@@ -217,9 +217,9 @@ class ModelDependentRefusalsArePredicted(KernelCase):
         app = cli.venture_import(pool, "t", dry_run=False, k=self.k)
         self.assertEqual(dry["protocols"], 3)
         self.assertEqual(sorted(s["title"] for s in dry["skipped"]), ["bad", "fast"])
-        self.assertEqual(app["routines"], 1)
+        self.assertEqual(app["operations"], 1)
         self.assertEqual(sorted(s["title"] for s in app["skipped"]), ["bad", "fast"])
-        self.assertEqual(len(dry["skipped"]), dry["protocols"] - app["routines"],
+        self.assertEqual(len(dry["skipped"]), dry["protocols"] - app["operations"],
                          "the shortfall the gate names")
 
     def test_the_strict_only_refusal_is_unreachable_from_an_import(self):
@@ -235,7 +235,7 @@ class ModelDependentRefusalsArePredicted(KernelCase):
 
         self.k.classify = fast
         with self.assertRaises(ValueError, msg="an interactive add under strict=True refuses"):
-            self.k.add_routine("costly", "Do the thing.", dept="eng", cron="0 9 * * 1", lane="full")
+            self.k.add_operation("costly", "Do the thing.", dept="eng", cron="0 9 * * 1", lane="full")
 
         # The importers' shape is `strict=False`, where the same request is lowered instead
         # of refused - and no raise. The distinction this guard needs is exactly that
@@ -244,7 +244,7 @@ class ModelDependentRefusalsArePredicted(KernelCase):
         # proposal's output row belongs to its child stage, and the proposal row's own
         # `lane` column reads 'full' in both shapes. Measured, then dropped rather than
         # pinned - the refusal contrast is the claim, and it does not need the lane.)
-        made = self.k.add_routine("costly", "Do the thing.", dept="eng", cron="0 9 * * 1",
+        made = self.k.add_operation("costly", "Do the thing.", dept="eng", cron="0 9 * * 1",
                                  lane="full", strict=False)
         self.assertEqual(made["stage"], "approve",
                          "strict=False lands a proposal instead of raising, so an import cannot refuse here")
@@ -270,13 +270,13 @@ class ModelDependentRefusalsArePredicted(KernelCase):
             "portability.import_department": P.import_department,
         }
         def _call_statements(fn_src: str) -> list[str]:
-            """Every `add_routine(...)` statement, whole, found by balancing parentheses
+            """Every `add_operation(...)` statement, whole, found by balancing parentheses
             rather than by a line count. The kwargs sit on continuation lines - measured:
             `venture_import`'s call spans 2 lines and `import_department`'s spans 5 - so a
             fixed window is a guess about where the source will sit next week."""
             lines, out, i = fn_src.splitlines(), [], 0
             while i < len(lines):
-                if "add_routine(" not in lines[i]:
+                if "add_operation(" not in lines[i]:
                     i += 1
                     continue
                 depth, started, region = 0, False, []
@@ -294,7 +294,7 @@ class ModelDependentRefusalsArePredicted(KernelCase):
         for name, fn in sites.items():
             stmts = _call_statements(inspect.getsource(fn))
             with self.subTest(call_site=name):
-                self.assertTrue(stmts, f"{name} must call add_routine")
+                self.assertTrue(stmts, f"{name} must call add_operation")
                 for stmt in stmts:
                     self.assertIn("strict=False", stmt,
                                   f"{name} must pass strict=False at its call site, "
@@ -302,7 +302,7 @@ class ModelDependentRefusalsArePredicted(KernelCase):
 
         # And the interactive path takes the default, so an interactive add CAN raise it -
         # which is why this is a boundary and not a defect.
-        sig = inspect.signature(self.k.add_routine)
+        sig = inspect.signature(self.k.add_operation)
         self.assertTrue(sig.parameters["strict"].default,
                         "the interactive add's default is strict=True")
 
@@ -331,7 +331,7 @@ class TheBoundaryIsWhatIsLeft(KernelCase):
 
     def test_the_valid_arguments_raise_nothing(self):
         """The other half of the same contract: a valid set passes, so the helper does
-        not refuse a routine the apply would accept."""
+        not refuse a operation the apply would accept."""
         from holon.execution.service import Kernel
         self.assertIsNone(Kernel._validate_routine_args(
             "t", "intent", cron="0 9 * * 1", command=None, lane=None, event=None))

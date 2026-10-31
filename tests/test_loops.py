@@ -492,7 +492,7 @@ class SetDriver(Loops):
 
 
 class DeadWorkdir(KernelCase):
-    """C2's own finding, made a check: the live instance's notes-digest routine named a
+    """C2's own finding, made a check: the live instance's notes-digest operation named a
     hermes-era scratchpad that does not exist. The driver falls back to the run directory, so the
     body ran against an empty dir and spun for an hour on inputs its plan named; the work was
     recovered only by the lease sweep. `holon doctor` now names the stage before a body is spent."""

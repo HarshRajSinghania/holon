@@ -127,7 +127,7 @@ class Protocol(KernelCase):
                    "holon_plan_queue": {"id", "plan"},
                    "holon_kb_list": {"slug"},
                    "holon_schedule_list": {"id"},
-                   "holon_routine_list": {"id"},
+                   "holon_operation_list": {"id"},
                    "holon_playbook_list": {"name"},
                    "holon_msg_inbox": {"id"},
                    "holon_events": {"id"}}

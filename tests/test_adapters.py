@@ -522,13 +522,16 @@ class ImportCast(KernelCase):
     def test_dry_run_maps_the_cast_and_applies_nothing(self):
         p = subprocess.run(self.cmd(False), capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertIn("routine   premiere", p.stdout)
+        # The label column is 10 wide in this table (hire, mechanism, refused, other): the old
+        # `routine` (7) + 3 spaces and the new `operation` (9) + 1 are both 10. The assertion
+        # reads the emitted width, so a ragged rename fails here.
+        self.assertIn("operation premiere", p.stdout)
         self.assertIn("hire      chief-of-staff", p.stdout)
         self.assertIn("mechanism crew-chief", p.stdout)
         self.assertIn("not a cast duty", p.stdout)
         self.assertIn("dry run", p.stdout)
         self.assertEqual(self._count("SELECT count(*) FROM employees WHERE name='Chief of Staff'"), 0)
-        self.assertEqual(self._count("SELECT count(*) FROM tasks WHERE title LIKE 'Routine: %'"), 0)
+        self.assertEqual(self._count("SELECT count(*) FROM tasks WHERE title LIKE 'Operation: %'"), 0)
 
     def test_apply_hires_the_seat_employees_and_proposes_the_cast_crons(self):
         p = subprocess.run(self.cmd(True), capture_output=True, text=True)
@@ -536,9 +539,9 @@ class ImportCast(KernelCase):
         self.assertEqual(self._count("SELECT count(*) FROM employees e JOIN departments d"
                                      " ON d.id=e.dept_id WHERE e.name='Chief of Staff' AND d.slug='executive'"), 1,
                          "the seat is an executive employee")
-        for title in ("Routine: daily directive + aspirations review", "Routine: directive follow-through review"):
+        for title in ("Operation: daily directive + aspirations review", "Operation: directive follow-through review"):
             self.assertEqual(self._count(f"SELECT count(*) FROM tasks WHERE title='{title}'"), 1)
-        self.assertEqual(self._count("SELECT count(*) FROM tasks WHERE title='Routine: crew telemetry'"), 0,
+        self.assertEqual(self._count("SELECT count(*) FROM tasks WHERE title='Operation: crew telemetry'"), 0,
                          "a kernel mechanism covers crew telemetry: no proposal")
         emp = self.k.wconn.execute("SELECT id FROM employees WHERE name='Chief of Staff'").fetchone()[0]
         self.assertIn("charter of chief-of-staff",

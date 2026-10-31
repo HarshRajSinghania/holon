@@ -187,9 +187,9 @@ class Schedules:
 
     def insert(self, kind: str, cron: str, *, employee_id: str | None = None, stage: str | None = None,
                template_id: str | None = None, event: str | None = None) -> str:
-        """`add` inside the caller's transaction (an approval that creates a routine's schedule).
+        """`add` inside the caller's transaction (an approval that creates an operation's schedule).
         `event` (H7): an event trigger — no cron, no clock; the runtime that sees a matching
-        event fires it (`holon routine fire`), at most once per [events] cooldown_s."""
+        event fires it (`holon operation fire`), at most once per [events] cooldown_s."""
         if kind not in KINDS:
             raise ValueError(f"kind must be one of {KINDS}")
         if event:
@@ -231,7 +231,7 @@ class Schedules:
         s = self.get(sid)
         # The enable gate (2026-10-25 red-team): a recurring schedule whose lane needs a body,
         # in a department where no active employee performs the stages it needs, does not light.
-        # Measured on a real imported instance: three departments, 26 pending routine approvals,
+        # Measured on a real imported instance: three departments, 26 pending operation approvals,
         # zero employees — `schedule enable` set next_run_at with no resistance, and the first
         # firing would have sat `ready` forever with nobody to claim it, invisible to every
         # surface until then. The script lane is exempt (the kernel is its runner), and the
@@ -274,7 +274,7 @@ class Schedules:
 
     def take_due(self, at: datetime | None = None) -> list[dict]:
         """Atomically advance every due schedule to its next fire time and return them.
-        Event triggers have no clock — they fire through `holon routine fire`, never by time."""
+        Event triggers have no clock — they fire through `holon operation fire`, never by time."""
         at = at or datetime.now(timezone.utc)
         due = []
         with write_txn(self.conn):

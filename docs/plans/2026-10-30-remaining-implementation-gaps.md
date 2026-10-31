@@ -520,7 +520,7 @@ everything after it is either mechanical (phase 7) or the Chair's product decisi
 schedules was correct: 192 dispatches a day were producing 263 consecutive failures and zero
 useful work. It also removed every clock on the instance, so `doctor` now reports
 `schedule.nowake` as an error. That is the honest consequence of the Chair's own instruction not
-to arm routines before their requirements are settled, and it is named here rather than left for
+to arm operations before their requirements are settled, and it is named here rather than left for
 someone to find. The Chair's options, all reversible:
 
 - **Leave it.** The instance is pre-clock: `holon dispatch --as <id> --stage <stage>` still claims

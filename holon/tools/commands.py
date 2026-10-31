@@ -25,7 +25,7 @@ FAMILY_ORDER = [
     ("a system (department)", "dept", "venture", "bylaws", "scope", "smoke"),
     ("knowledge", "kb", "memory", "recall", "law", "ad", "playbook"),
     ("skills", "skill"),
-    ("recurring work and objectives", "schedule", "routine", "objective"),
+    ("recurring work and objectives", "schedule", "operation", "objective"),
     ("communication", "msg"),
     ("intactness", "lint", "doctor", "gc", "backup", "restore", "keys", "guard", "guards", "incident"),
     ("isolation: the trust boundary", "isolation", "broker", "mcp", "adapter"),

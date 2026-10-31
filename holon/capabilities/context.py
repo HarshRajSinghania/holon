@@ -196,18 +196,18 @@ def identity_card(employee: dict, manager: dict | None, authority: list[dict], r
             "organization) render in your brief, and `$holon msg inbox` reads them in full.\n")
 
 
-FAST_LANE = ("There is no separate plan or approval: this work is routine (its grade floor is G0), so you plan "
+FAST_LANE = ("There is no separate plan or approval: this work is operation (its grade floor is G0), so you plan "
              "the steps and act in this one session. Stay inside the workdir and your department's reach and send "
              "nothing outside the organization. List in your result the `writes` you made and any "
-             "`external_effects`: the kernel grades them again, and anything beyond routine goes to a verifier and "
-             "the Chair. If the work turns out not to be routine, change nothing and return outcome `noop` with "
+             "`external_effects`: the kernel grades them again, and anything beyond operation goes to a verifier and "
+             "the Chair. If the work turns out not to be operation, change nothing and return outcome `noop` with "
              "`blockers` saying why: it then goes through the full pipeline.")
 
 
-ROUTINE_RUN = ("This is one run of an approved routine: no separate plan or approval. Follow its playbook (above), "
+ROUTINE_RUN = ("This is one run of an approved operation: no separate plan or approval. Follow its playbook (above), "
                "stay inside the workdir and your department's reach, and send nothing outside the organization "
-               "unless the routine was approved to. List the `writes` you made and any `external_effects`; the kernel "
-               "grades them against the routine's approval. If this run cannot be done as the playbook says, change "
+               "unless the operation was approved to. List the `writes` you made and any `external_effects`; the kernel "
+               "grades them against the operation's approval. If this run cannot be done as the playbook says, change "
                "nothing and return outcome `noop` with `blockers` saying why: what you found feeds the playbook's next "
                "refinement.")
 

@@ -260,29 +260,29 @@ def cmd_dept_list(args, k):
 
 
 @command("dept export", "chair", "write a department's archive: its profile, its people (never their "
-         "keys), its reach, its checks, its secret PATHS, its routines and its knowledge bases (G12)",
+         "keys), its reach, its checks, its secret PATHS, its operations and its knowledge bases (G12)",
          arg("slug"), arg("--to", required=True, help="the directory to write the archive into"))
 def cmd_dept_export(args, k):
     out = k.export_department(args.slug, args.to)
     _out(args, out, f"archive: {out['path']}\n{out['dept']}: {out['employees']} employees, "
-                     f"{out['routines']} routines\n"
+                     f"{out['operations']} operations\n"
                      "note: no secret value and no approval travels with it")
 
 
 @command("dept import", "chair", "create a department from an archive (G12). The archive's checksums "
-         "are verified first: a tampered archive is refused, and nothing is created. Every routine "
+         "are verified first: a tampered archive is refused, and nothing is created. Every operation "
          "lands unapproved: an import is not an approval", arg("archive"))
 def cmd_dept_import(args, k):
     out = k.import_department(args.archive)
-    _out(args, out, f"{out['dept']}: {out['employees']} employees, {out['routines']} routines "
+    _out(args, out, f"{out['dept']}: {out['employees']} employees, {out['operations']} operations "
                      f"(all unapproved)\n{out['note']}")
 
 
 @command("venture import", "chair", "read a venture's four artifacts (_org.yaml, cron-jobs/, smoke.yaml, "
-         "scripts/) and make them a department. A dry run unless --apply; every routine lands "
+         "scripts/) and make them a department. A dry run unless --apply; every operation lands "
          "unapproved, because an import is not an approval",
          arg("path"), arg("--dept", required=True, help="the department slug to create"),
-         arg("--apply", action="store_true", help="create the department and its routines"))
+         arg("--apply", action="store_true", help="create the department and its operations"))
 def cmd_venture_import(args, k):
     from holon.execution import ventures
     out = ventures.venture_import(k, Path(args.path).expanduser(), args.dept, dry_run=not args.apply)
@@ -295,7 +295,7 @@ def cmd_venture_import(args, k):
                         + (f" — {', '.join(out['outside_reach_titles'][:5])}" if out["outside_reach"] else "")
                         + "\n  nothing written; pass --apply to create it")
         return
-    _out(args, out, f"{out['dept']}: {out['routines']} routines, {out['checks']} checks\n"
+    _out(args, out, f"{out['dept']}: {out['operations']} operations, {out['checks']} checks\n"
                     f"{out['note']}")
 
 
@@ -609,7 +609,7 @@ def cmd_plan_show(args, k):
 @command("plan approve", "chair", "approve a plan (approval, plan or work id)", arg("ref"), arg("--note"),
          arg("--recurring", action="store_true",
              help="record this plan as a recurring template (it is how a decomposition with cron "
-                  "children becomes one; an imported routine already records that, and enabling its "
+                  "children becomes one; an imported operation already records that, and enabling its "
                   "schedule is a separate decision: `holon schedule enable`)"))
 def cmd_plan_approve(args, k):
     out = k.approve(args.ref, args.note, recurring=args.recurring)
@@ -765,13 +765,13 @@ def cmd_schedule_add(args, k):
     _out(args, row, f"{row['id']}  {row['kind']} '{row['cron']}' next {row['next_run_at']}")
 
 
-@command("routine add", "chair", "a recurring job, in the cheapest lane that does it reliably (script, fast, full); "
-         "the classifier enforces the lane and the routine goes to its approver", arg("title"),
+@command("operation add", "chair", "a recurring job, in the cheapest lane that does it reliably (script, fast, full); "
+         "the classifier enforces the lane and the operation goes to its approver", arg("title"),
          arg("--intent", required=True, help="what each firing does: text, '-' for stdin, or @file"),
          arg("--dept", required=True),
          arg("--cron", help="5-field cron, e.g. '0 7 * * *'; or --on for an event trigger"),
          arg("--on", metavar="event:<pattern>", help="fire on events instead of a cron: the runtime that sees "
-             "a matching event fires it (`holon routine fire`), once per cooldown; Holon never matches events"),
+             "a matching event fires it (`holon operation fire`), once per cooldown; Holon never matches events"),
          arg("--lane", choices=list(vocab.LANES), help="default: the classifier's"),
          arg("--command", help="the script lane: a command the kernel runs (no agent)"),
          arg("--rubric", action="append", default=[], help="a criterion each result is judged on (repeat)"),
@@ -779,8 +779,8 @@ def cmd_schedule_add(args, k):
          arg("--deliver", action="store_true", help="send each result to the Chair through [notify] (a digest)"),
          arg("--workdir"), arg("--task-class"), arg("--risk", default="normal", choices=list(vocab.RISKS)),
          arg("--project"))
-def cmd_routine_add(args, k):
-    a = k.add_routine(args.title, _text_arg(args.intent), dept=args.dept, cron=args.cron, event=args.on,
+def cmd_operation_add(args, k):
+    a = k.add_operation(args.title, _text_arg(args.intent), dept=args.dept, cron=args.cron, event=args.on,
                       lane=args.lane,
                       command=args.command, rubric=args.rubric, why=args.why, task_class=args.task_class,
                       workdir=str(Path(args.workdir).expanduser().resolve()) if args.workdir else None,
@@ -789,13 +789,13 @@ def cmd_routine_add(args, k):
     _out(args, {"approval": a, "plan": plan}, _plan_text(k, a) + "\n\nOn approval the schedule starts.")
 
 
-@command("routine fire", "kernel", "fire an event routine: the runtime that saw a matching event calls this "
+@command("operation fire", "kernel", "fire an event operation: the runtime that saw a matching event calls this "
          "(once per cooldown, with the payload on the work)", arg("schedule_id"),
          arg("--payload", help="what the event carried, taken literally: never a file reference — a runtime "
              "relaying channel text MUST NOT let that text name a path. Use --payload-file for a file the "
              "runtime itself chose"),
          arg("--payload-file", help="read the payload from this file (the runtime's own choice of path)"))
-def cmd_routine_fire(args, k):
+def cmd_operation_fire(args, k):
     payload = args.payload
     if args.payload_file:
         payload = _read(args.payload_file)
@@ -806,7 +806,7 @@ def cmd_routine_fire(args, k):
         return NOTHING
 
 
-# The keys the importer reads as a routine field. Everything else the protocol carries
+# The keys the importer reads as an operation field. Everything else the protocol carries
 # is provenance: read, recorded, never silently dropped (M1, the 2026-10-20 bridge plan).
 _READ_KEYS = ("name", "schedule", "description", "no_agent", "script", "deliver", "status")
 # R-1, the relevance rule's runtime half (the Chair's ruling, 2026-10-23). A protocol that
@@ -816,14 +816,14 @@ _READ_KEYS = ("name", "schedule", "description", "no_agent", "script", "deliver"
 # named (law 2); the kernel's own drivers and the kernel itself never match, so a job that Holon
 # does serve is never fenced. Measured live: exactly the two that had to be cancelled.
 _FOREIGN_RUNTIME_RE = re.compile(r"^(vps|remote|manual|systemd|off-host|elsewhere|external)\b", re.I)
-# The keys that are the routine's *protocol* rather than its metadata: they become the
-# routine's playbook (a versioned protocol with a rubric), not prose in the intent.
+# The keys that are the operation's *protocol* rather than its metadata: they become the
+# operation's playbook (a versioned protocol with a rubric), not prose in the intent.
 _PROTOCOL_KEYS = ("skills", "enabled_toolsets")
 
 
 def legacy_cron(path: Path) -> dict:
     """A legacy cron-job protocol (`cron-jobs/<job>.md`: YAML-ish frontmatter and a markdown body)
-    as routine fields. The frontmatter subset those files use: `key: value`, quoted values, indented
+    as operation fields. The frontmatter subset those files use: `key: value`, quoted values, indented
     continuation lines, and `- item` lists.
 
     **Nothing is silently dropped** (M1). The importer read 7 of the 33 fields the 62
@@ -832,10 +832,10 @@ def legacy_cron(path: Path) -> dict:
     on this input" became "summarise the inbox", a different job imported as the same
     one. So every key the protocol carries is now read and recorded, in three places:
 
-    - the fields the kernel has a home for become routine fields (`skills` and
-      `enabled_toolsets` are the routine's protocol, and a routine already carries a
+    - the fields the kernel has a home for become operation fields (`skills` and
+      `enabled_toolsets` are the operation's protocol, and an operation already carries a
       **playbook** — versioned, rubric-bearing, refined by the kernel's own loop);
-    - everything else is written into the routine's intent as a provenance line, so a
+    - everything else is written into the operation's intent as a provenance line, so a
       reader can see exactly what the protocol said and a later mechanism can read it;
     - and `provenance` names every key read, so a test can assert that none was lost.
     """
@@ -865,12 +865,12 @@ def legacy_cron(path: Path) -> dict:
         if isinstance(meta.get("enabled_toolsets"), list) else ([meta["enabled_toolsets"]] if meta.get("enabled_toolsets") else [])
     # the provenance line: every key the protocol carried, so nothing is lost
     carried = {k: v for k, v in meta.items() if k not in _READ_KEYS}
-    # the protocol line: the routine's *protocol* — the skills it runs and the tools it may
-    # use. It is the first thing the routine's playbook says, so a body that loads the
+    # the protocol line: the operation's *protocol* — the skills it runs and the tools it may
+    # use. It is the first thing the operation's playbook says, so a body that loads the
     # playbook knows which skills are the protocol and which tools it may reach.
     protocol = ""
     if skills or toolsets:
-        protocol = ("\n\n**Protocol.** This routine runs the "
+        protocol = ("\n\n**Protocol.** This operation runs the "
                     + (", ".join(f"`{s}`" for s in skills) if skills else "no named skill")
                     + ("; it may use " + ", ".join(f"`{t}`" for t in toolsets) if toolsets else "")
                     + ". Load them before the work; they are the protocol, not a suggestion.")
@@ -887,11 +887,11 @@ def legacy_cron(path: Path) -> dict:
             # operator is asking the kernel to import it. Measured 2026-10-21 on the real corpus:
             # every protocol in the only importable pool declares no `status` at all, so the old
             # default (`!= "active"`) silently dropped every one of them, and the apply's
-            # `except …: continue` reported `routines: 0` beside `protocols: 4`.
+            # `except …: continue` reported `operations: 0` beside `protocols: 4`.
             # `superseded` was the omission beside that rule: measured 2026-10-23 across the
             # corpus, 29 of 62 protocol files declare `status: superseded` and every one of them
             # imported as live, because the value was absent from this tuple. `quant-trading`'s
-            # two (`monthly-retrain`, `weekly-reconciliation`) have no routine in the live registry
+            # two (`monthly-retrain`, `weekly-reconciliation`) have no operation in the live registry
             # at all, so the import would have bought bodies for work the live system dropped.
             # Quoting is not a factor: the front-matter reader above strips both quote
             # kinds, so a `paused` or a `superseded` reached this tuple already normalized.
@@ -923,10 +923,10 @@ def venture_import(pool, dept: str, dry_run: bool = True, k=None) -> dict:
     return ventures.venture_import(k, Path(pool), dept, dry_run=dry_run)
 
 
-@command("routine import", "chair", "propose routines from legacy cron-job protocols (cron-jobs/*.md); a dry "
+@command("operation import", "chair", "propose operations from legacy cron-job protocols (cron-jobs/*.md); a dry "
          "run unless --apply", arg("files", nargs="+"), arg("--dept", required=True),
-         arg("--apply", action="store_true", help="create the routine proposals (each goes to its approver)"))
-def cmd_routine_import(args, k):
+         arg("--apply", action="store_true", help="create the operation proposals (each goes to its approver)"))
+def cmd_operation_import(args, k):
     rows = []
     for f in args.files:
         r = legacy_cron(Path(f).expanduser())
@@ -943,7 +943,7 @@ def cmd_routine_import(args, k):
                           "runtime, or drop `runtime:`, and it imports as this organization's own")
         elif args.apply and not r["paused"]:
             try:
-                a = k.add_routine(r["title"], r["intent"], dept=args.dept, cron=r["cron"], command=r["command"],
+                a = k.add_operation(r["title"], r["intent"], dept=args.dept, cron=r["cron"], command=r["command"],
                                   workdir=r["workdir"], deliver=r["deliver"], strict=False, imported=True)
                 r.update(approval=a["id"], approver=a["approver"], grade=a["grade"])
             except (ValueError, LookupError) as e:
@@ -957,12 +957,12 @@ def cmd_routine_import(args, k):
                                + (f"  !! {r['error']}" if r.get("error") else "") for r in rows))
 
 
-@command("routine list", "any", "routines: lane, schedule, firings and outcomes", mutates=False)
-def cmd_routine_list(args, k):
-    rs = k.routines()
+@command("operation list", "any", "operations: lane, schedule, firings and outcomes", mutates=False)
+def cmd_operation_list(args, k):
+    rs = k.operations()
     _out(args, rs, "\n".join(f"{r['schedule']}  {'on ' if r['enabled'] else 'off'} {r['lane']:<6} {r['cron']:<14} "
                              f"{r['title']}  ({r['fired']} fired, {r['done']} done, {r['failed']} failed)"
-                             for r in rs) or "no routines")
+                             for r in rs) or "no operations")
 
 
 @command("smoke", "chair", "run the smoke checks: the infrastructure each department runs on ([smoke]); a "
@@ -977,7 +977,7 @@ def cmd_smoke(args, k):
     return 1 if any(r["critical"] for r in bad) else 0
 
 
-@command("objective add", "chair", "an objective: decomposed into work and routines, reviewed against its key results "
+@command("objective add", "chair", "an objective: decomposed into work and operations, reviewed against its key results "
          "until they are met", arg("title"), arg("--intent", required=True, help="text, '-' for stdin, or @file"),
          arg("--dept", required=True), arg("--key-result", action="append", default=[], dest="key_results",
                                            help="a measurable result that says the objective is met (repeat)"),
@@ -989,14 +989,14 @@ def cmd_objective_add(args, k):
     _out(args, o, _line(o) + f"\n  first stage: {k.work.stages(o['id'])[0]['stage']}")
 
 
-@command("objective show", "any", "an objective's dashboard: key results, its work, its routines and their playbooks",
+@command("objective show", "any", "an objective's dashboard: key results, its work, its operations and their playbooks",
          arg("objective_id"), mutates=False)
 def cmd_objective_show(args, k):
     text = k.objective_dashboard(args.objective_id)
     _out(args, {"objective": args.objective_id, "dashboard": text}, text)
 
 
-@command("playbook list", "any", "playbooks: each routine's and task class's protocol and rubric, with its version",
+@command("playbook list", "any", "playbooks: each operation's and task class's protocol and rubric, with its version",
          arg("--dept"), mutates=False)
 def cmd_playbook_list(args, k):
     from holon.capabilities import playbooks

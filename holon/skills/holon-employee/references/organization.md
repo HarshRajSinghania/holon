@@ -15,9 +15,9 @@ stages, so the history is never rewritten.
 
 ## Grades and approval
 
-A plan is graded G0 (routine) to G4 (critical or irreversible). The organization raises the
+A plan is graded G0 (operation) to G4 (critical or irreversible). The organization raises the
 grade to an objective floor and routes the plan to the lowest approver whose earned authority
-covers it: the head, then the CEO, then the Chair. Trusted routine work is verified on a
+covers it: the head, then the CEO, then the Chair. Trusted operation work is verified on a
 sample. Widening anyone's authority needs an approval; narrowing applies at once.
 
 ## Memory

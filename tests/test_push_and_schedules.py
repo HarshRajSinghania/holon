@@ -852,7 +852,7 @@ class UnreadMessagesReachTheBrief(LaneCase):
     """The 2026-10-24 context-injection audit: a DM addressed to an employee never appeared in
     that employee's brief — not at any stage, ever. `Kernel.inbox` had no dispatch-time reader,
     so the collaboration surface was pull-only: a body that never ran `msg inbox` never learned
-    the staging key rotated. For a once-and-exit routine body, pull-only means never.
+    the staging key rotated. For a once-and-exit operation body, pull-only means never.
 
     The fix is one join at the seam the audit named (`compile_context`'s message query): the
     unread section renders right after "Your role", is capped, and **acks on render** — the

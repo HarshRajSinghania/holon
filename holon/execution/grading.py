@@ -1,4 +1,4 @@
-"""Plan grades: G0 routine · G1 minor · G2 significant · G3 major · G4 critical/irreversible.
+"""Plan grades: G0 operation · G1 minor · G2 significant · G3 major · G4 critical/irreversible.
 
 effective grade = max(planner's proposed grade, kernel floor). The floor comes only from
 objective signals, so an employee cannot grade its way past the Chair (the Goodhart guard);
@@ -112,7 +112,7 @@ def grade_plan(conn: sqlite3.Connection, task: dict, env: dict, cfg: dict | None
     # workdir and the reach names something the organization cannot get back, so it raises
     # the floor exactly as a write does. `writes` had this since the trust boundary was
     # built; `artifacts` had no reader at all (A6), so a result claiming a durable artifact
-    # beyond its department graded as routine.
+    # beyond its department graded as operation.
     for a in env.get("artifacts") or []:
         if not isinstance(a, str) or "://" in a:
             continue

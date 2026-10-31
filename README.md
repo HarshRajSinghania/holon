@@ -115,8 +115,8 @@ server (`holon mcp`, run-token authenticated). The full contract for harness aut
 
 ## How it works
 
-- **Lanes.** Work runs cheapest-first: a script the kernel runs, one fast session for routine
-  work, the full pipeline when it is needed. Each routine has a rubric, and its last verified
+- **Lanes.** Work runs cheapest-first: a script the kernel runs, one fast session for operation
+  work, the full pipeline when it is needed. Each operation has a rubric, and its last verified
   run is its gold standard, shown to the next executor and its judge.
 - **Learning loops.** Every stage's learnings consolidate into employee memory; failures and
   metrics open department retros whose actions become work; playbooks (a job's protocol and

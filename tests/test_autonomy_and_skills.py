@@ -84,7 +84,7 @@ class VerifySampling(KernelCase):
     config = "[grading]\nnovelty_min_verified = 0\n"
 
     def _g0(self, i, rate_hit=None):
-        t = self.add(f"routine {i}", dept="eng", task_class="routine", risk="low")
+        t = self.add(f"operation {i}", dept="eng", task_class="operation", risk="low")
         self.plan_and_approve(t, assignee=self.dev1, writes=[], grade="G0")
         c = self.k.claim("execute", self.dev1)
         return t, c, self.k.submit(c.run["id"], self.exec_env())
@@ -100,11 +100,11 @@ class VerifySampling(KernelCase):
         self.assertEqual(self.status(t), "done")
         res = self.k.work.last_execute_output(t["id"])
         self.assertEqual((res["verified"], res["verified_by"]), (None, "sampling"))
-        self.assertEqual(self.k.work.executor_streak(self.dev1, "routine"), 2, "unverified work earns no trust")
+        self.assertEqual(self.k.work.executor_streak(self.dev1, "operation"), 2, "unverified work earns no trust")
 
     def test_untrusted_or_graded_work_is_always_verified(self):
         self.k.config["autonomy"] = {"trusted_after": 0, "verify_sample_rate": 0.0}
-        t = self.add("bigger", dept="eng", task_class="routine", risk="normal")
+        t = self.add("bigger", dept="eng", task_class="operation", risk="normal")
         self.plan_and_approve(t, assignee=self.dev1, writes=[], grade="G1")
         c = self.k.claim("execute", self.dev1)
         self.assertFalse(self.k.submit(c.run["id"], self.exec_env())["verification_skipped"])
@@ -118,7 +118,7 @@ class VerifySampling(KernelCase):
         self.k.verify(t["id"], "pass", "ok")
         t2, _, out2 = self._g0(2)
         self.assertTrue(out2["verification_skipped"], "control: a clean trusted success closes unverified")
-        t3 = self.add("routine refused", dept="eng", task_class="routine", risk="low")
+        t3 = self.add("operation refused", dept="eng", task_class="operation", risk="low")
         self.plan_and_approve(t3, assignee=self.dev1, writes=[], grade="G0")
         c3 = self.k.claim("execute", self.dev1)
         out3 = self.k.submit(c3.run["id"], self.exec_env(

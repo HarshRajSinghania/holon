@@ -81,11 +81,11 @@ class StrayRootDirectories(KernelCase):
         (`used` held `disk-usage` and `notes-digest`, never `routines`). A directory that holds
         a live work's workdir is declared by that use at every level, so a root that groups
         per-plan directories is exactly as legitimate as a root used directly."""
-        group = self.home.root / "routines"
+        group = self.home.root / "operations"
         (group / "disk-usage").mkdir(parents=True)
         (group / "notes-digest").mkdir(parents=True)
-        self.add("Routine: Disk usage report", workdir=str(group / "disk-usage"))
-        self.add("Routine: Notes digest", workdir=str(group / "notes-digest"))
+        self.add("Operation: Disk usage report", workdir=str(group / "disk-usage"))
+        self.add("Operation: Notes digest", workdir=str(group / "notes-digest"))
         findings = [f for f in doctor.run(self.k) if f["check"] == "scope.stray"]
         self.assertEqual([], findings, f"a root directory a work's workdir sits inside is declared: {findings}")
 

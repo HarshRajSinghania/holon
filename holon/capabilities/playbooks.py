@@ -5,7 +5,7 @@ A playbook is a skill of kind `playbook` in a department's layer (`$HOLON_HOME/s
     SKILL.md    frontmatter (version) + the protocol: objective, steps, lessons
     rubric.md   the criteria every result is judged on, one `- ` line each
 
-Routines get one when they are approved (`routine-<slug>`); a task class gets one when the department
+Operations get one when they are approved (`operation-<slug>`); a task class gets one when the department
 has enough verified results to write it down (`class-<task_class>`). Executors read it, the rubric judge
 scores results against it, and refinement work (planned, approved, executed and verified like any
 other) rewrites it from the evidence: judgments per criterion, verifier notes, gold standards. The
@@ -28,7 +28,7 @@ def slug(text: str, prefix: str) -> str:
 
 
 def for_routine(title: str) -> str:
-    return slug(title, "routine-")
+    return slug(title, "operation-")
 
 
 def for_class(task_class: str) -> str:

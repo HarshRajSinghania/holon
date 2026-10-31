@@ -80,13 +80,13 @@ is not in this file fails `holon lint` — so this file can never drift from the
 | Command | Actor | What it does |
 |---|---|---|
 | `holon dept create` `--name` `--mission` `--parent` `--profile` <slug> | chair | create a department from a bylaws profile |
-| `holon dept export` `--to` <slug> | chair | write a department's archive: its profile, its people (never their keys), its reach, its checks, its secret PATHS, its routines and its knowledge bases (G12) |
-| `holon dept import` <archive> | chair | create a department from an archive (G12). The archive's checksums are verified first: a tampered archive is refused, and nothing is created. Every routine lands unapproved: an import is not an approval |
+| `holon dept export` `--to` <slug> | chair | write a department's archive: its profile, its people (never their keys), its reach, its checks, its secret PATHS, its operations and its knowledge bases (G12) |
+| `holon dept import` <archive> | chair | create a department from an archive (G12). The archive's checksums are verified first: a tampered archive is refused, and nothing is created. Every operation lands unapproved: an import is not an approval |
 | `holon dept list` | any | departments |
 | `holon dept profile` `--reason` <slug> <profile> | chair | change a department's bylaws profile |
 | `holon dept profiles` | any | available bylaws profiles |
 | `holon dept roles` <slug> | any | the department's role slots and who fills them |
-| `holon venture import` `--dept` `--apply` <path> | chair | read a venture's four artifacts (_org.yaml, cron-jobs/, smoke.yaml, scripts/) and make them a department. A dry run unless --apply; every routine lands unapproved, because an import is not an approval |
+| `holon venture import` `--dept` `--apply` <path> | chair | read a venture's four artifacts (_org.yaml, cron-jobs/, smoke.yaml, scripts/) and make them a department. A dry run unless --apply; every operation lands unapproved, because an import is not an approval |
 | `holon bylaws draft` `--charter` `--service` `--command` `--accepts` `--returns` `--note` `--args` `--health` `--pool-of` `--owner` <slug> | employee | propose a unit manifest from a capability your department keeps running ad hoc (A10): it lands in bylaws/drafts/ and changes nothing until the Chair promotes it |
 | `holon bylaws emit` | chair | derive bylaws/registry.md from the synced units (U3): the unit tree, the services each offers, and the consumption graph |
 | `holon bylaws promote` <slug> | chair | move a draft unit into bylaws/units/ after validation (A10): the ruling that makes a proposed capability part of the organization |
@@ -121,7 +121,7 @@ is not in this file fails `holon lint` — so this file can never drift from the
 | `holon ad find` <query> | any | search the organization's findings, decisions and design records by topic |
 | `holon ad index` | chair | rebuild the architecture index from the corpus (the ledger, the design records, the decisions): refuses to complete while a ledger row names a test the suite does not carry |
 | `holon ad show` <id> | any | one finding, decision or design record by id |
-| `holon playbook list` `--dept` | any | playbooks: each routine's and task class's protocol and rubric, with its version |
+| `holon playbook list` `--dept` | any | playbooks: each operation's and task class's protocol and rubric, with its version |
 | `holon playbook show` `--dept` <name> | any | a playbook: its protocol, rubric, and the evidence its next refinement will read |
 
 ## skills
@@ -149,12 +149,12 @@ is not in this file fails `holon lint` — so this file can never drift from the
 | `holon schedule disable` <schedule_id> | chair | disable a schedule |
 | `holon schedule enable` `--force` <schedule_id> | chair | enable a schedule (refuses an unstaffed lane unless --force; the refusal names the hire that works in that department's charter) |
 | `holon schedule list` | any | schedules |
-| `holon routine add` `--intent` `--dept` `--cron` `--on` `--lane` `--command` `--rubric` `--why` `--deliver` `--workdir` `--task-class` `--risk` `--project` <title> | chair | a recurring job, in the cheapest lane that does it reliably (script, fast, full); the classifier enforces the lane and the routine goes to its approver |
-| `holon routine fire` `--payload` `--payload-file` <schedule_id> | kernel | fire an event routine: the runtime that saw a matching event calls this (once per cooldown, with the payload on the work) |
-| `holon routine import` `--dept` `--apply` <files> | chair | propose routines from legacy cron-job protocols (cron-jobs/*.md); a dry run unless --apply |
-| `holon routine list` | any | routines: lane, schedule, firings and outcomes |
-| `holon objective add` `--intent` `--dept` `--key-result` `--project` `--workdir` <title> | chair | an objective: decomposed into work and routines, reviewed against its key results until they are met |
-| `holon objective show` <objective_id> | any | an objective's dashboard: key results, its work, its routines and their playbooks |
+| `holon operation add` `--intent` `--dept` `--cron` `--on` `--lane` `--command` `--rubric` `--why` `--deliver` `--workdir` `--task-class` `--risk` `--project` <title> | chair | a recurring job, in the cheapest lane that does it reliably (script, fast, full); the classifier enforces the lane and the operation goes to its approver |
+| `holon operation fire` `--payload` `--payload-file` <schedule_id> | kernel | fire an event operation: the runtime that saw a matching event calls this (once per cooldown, with the payload on the work) |
+| `holon operation import` `--dept` `--apply` <files> | chair | propose operations from legacy cron-job protocols (cron-jobs/*.md); a dry run unless --apply |
+| `holon operation list` | any | operations: lane, schedule, firings and outcomes |
+| `holon objective add` `--intent` `--dept` `--key-result` `--project` `--workdir` <title> | chair | an objective: decomposed into work and operations, reviewed against its key results until they are met |
+| `holon objective show` <objective_id> | any | an objective's dashboard: key results, its work, its operations and their playbooks |
 
 ## communication
 

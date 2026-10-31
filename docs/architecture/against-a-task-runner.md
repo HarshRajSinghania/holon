@@ -37,7 +37,7 @@ refinement's own output is judged like any other work. That is the test a task r
 construction — its "improvement" is a person's manual edit.
 
 **2. It fails loudly rather than silently.** The lanes run cheapest-first (a script the kernel runs,
-one fast session for routine work, the full pipeline when it is needed), so a routine job costs one
+one fast session for operation work, the full pipeline when it is needed), so an operation job costs one
 kernel call. When something is actually wrong, the lease sweep recovers it and the doctor opens
 incident work — a failing department is reported, not left waiting (`holon metrics`, `smoke_blocked`).
 A quiet system that appears healthy is the failure mode this design is built to prevent.
@@ -53,7 +53,7 @@ A skeptical read of the table above should land here, because the costs are real
 them:
 
 - **Latency on approval.** A graded route means a head or the CEO decides before execution. Work that
-  genuinely needs no judgment should have been a routine in the script or fast lane, where no human
+  genuinely needs no judgment should have been an operation in the script or fast lane, where no human
   waits.
 - **The Chair is still a human.** Reserved approvals, charter changes and the root isolation step are
   the Chair's alone. The system moves fastest for whoever accepts that a few decisions stay

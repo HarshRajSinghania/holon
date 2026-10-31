@@ -42,7 +42,7 @@ a pipeline's** — you propose with evidence, you do not reach around it.
 | Move | Perform it with | Approved by |
 |---|---|---|
 | **add** a system | `$holon dept create <slug> --name … --mission @m.md --profile <p>` (the `holon-system-design` skill is the full design protocol) | Chair |
-| add a candidate from outside | `$holon venture import <path> --dept <slug> --apply` — every routine lands unapproved, since an import is not an approval | Chair |
+| add a candidate from outside | `$holon venture import <path> --dept <slug> --apply` — every operation lands unapproved, since an import is not an approval | Chair |
 | **remove** one | `$holon dept export <slug> --to <dir>` first, then `$holon task cancel` its live work | Chair |
 | **refactor** one | `$holon dept profile <slug> <profile>`, or `$holon hr set-driver <emp> --driver <d>` | Chair |
 | **expand** one | `$holon hr hire …`; a `[scope.dept.<slug>]` root, a `[smoke.dept.<slug>]` check, a task class in `holon.toml` | Chair |

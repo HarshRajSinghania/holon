@@ -1,16 +1,16 @@
 """The operationalization gates (2026-10-25 red-team).
 
-Measured on a real imported instance: the Chair-approved ventures import landed 26 routine
+Measured on a real imported instance: the Chair-approved ventures import landed 26 operation
 proposals in three departments with **zero employees**, and every operationalization seam
 accepted the state without a word:
 
 - `schedule enable` lit an unstaffed department's recurring schedule with no resistance (F1);
-- `add_routine`'s grade reasons — the only thing the approver reads — said nothing about
+- `add_operation`'s grade reasons — the only thing the approver reads — said nothing about
   staffing (F2);
 - doctor reported nothing at all: no backstop existed, on any surface (F3);
 - `hr hire --driver` accepted a driver name nothing configures (F4);
-- a `deliver` routine on an instance with no `[notify]` command silently drops results (F5);
-- a script routine whose workdir is gone silently ran in the run directory instead (F6);
+- a `deliver` operation on an instance with no `[notify]` command silently drops results (F5);
+- a script operation whose workdir is gone silently ran in the run directory instead (F6);
 - forced end to end, the firing's stage sat `ready` in a department where nobody could claim
   it (F7) — the strand every one of the above permits.
 
@@ -39,11 +39,11 @@ class OperationalGates(LaneCase):
     gate by hiring nothing into a fresh department."""
 
     def _unstaffed_routine(self, lane: str, title="Ghost digest", intent_extra=None, **kw):
-        """A routine in a department with no employees, in the given lane."""
+        """A operation in a department with no employees, in the given lane."""
         self.k.org.create_dept("ghost", "Ghost", "A department nobody staffs")
         with mock.patch.object(self.k, "classify", return_value={"lane": lane, "confidence": 0.99,
                                                                 "external_p": 0.10}):
-            a = self.k.add_routine(title, intent_extra or "summarize the ghost pool", dept="ghost",
+            a = self.k.add_operation(title, intent_extra or "summarize the ghost pool", dept="ghost",
                                    cron="0 9 * * *", workdir=str(self.workdir), **kw)
         return a
 
@@ -52,7 +52,7 @@ class OperationalGates(LaneCase):
 
     # ── F1/F7: the enable seam — an unstaffed schedule must not light ───────────────
     def _parked_import(self, intent="summarize the ghost pool"):
-        """An imported, outside-reach routine in the unstaffed dept: parks OFF on approval, so the
+        """An imported, outside-reach operation in the unstaffed dept: parks OFF on approval, so the
         enable gate is the seam its schedule reaches (a hand-written one is refused at approval)."""
         with mock.patch.object(self.k, "_external_by_name", return_value=(True, "send")):
             b = self._unstaffed_routine("fast", title="Ghost outreach", intent_extra=intent,
@@ -76,7 +76,7 @@ class OperationalGates(LaneCase):
                         driver="fake", reason="staffing", status="active")
         with mock.patch.object(self.k, "classify", return_value={"lane": "fast", "confidence": 0.99,
                                                                 "external_p": 0.10}):
-            a = self.k.add_routine("Ghost digest", "summarize the ghost pool", dept="ghost",
+            a = self.k.add_operation("Ghost digest", "summarize the ghost pool", dept="ghost",
                                    cron="0 9 * * *", workdir=str(self.workdir))
         self.k.approve(a["id"])
         plan = self.k.work.plan_for_approval(a["id"])
@@ -91,7 +91,7 @@ class OperationalGates(LaneCase):
         plan = self.k.work.plan_for_approval(a["id"])
         sid = self.k.wconn.execute("SELECT id FROM schedules WHERE template_id=?", (plan["id"],)).fetchone()[0]
         self.assertTrue(self.k.schedules.get(sid)["enabled"],
-                        "a script routine in an unstaffed dept starts on approval, as before")
+                        "a script operation in an unstaffed dept starts on approval, as before")
         s = self.k.schedules.set_enabled(sid, True)   # and re-enable is fine too
         self.assertTrue(s["enabled"])
 
@@ -166,16 +166,16 @@ class OperationalGates(LaneCase):
                         driver="fake", reason="staffing", status="active")
         with mock.patch.object(self.k, "classify", return_value={"lane": "fast", "confidence": 0.99,
                                                                 "external_p": 0.10}):
-            a = self.k.add_routine("Ghost digest", "summarize the ghost pool", dept="ghost",
+            a = self.k.add_operation("Ghost digest", "summarize the ghost pool", dept="ghost",
                                    cron="0 9 * * *", workdir=str(self.workdir))
         plan = self.k.work.get(a["id"])
         reasons = json.loads(plan["grade_reasons"] or "[]")
         self.assertFalse(any("performs" in r and "no employee" in r for r in reasons),
                         f"a staffed department carries no false note: {reasons}")
 
-    # ── the approval seam: a starts-on-approval routine in an unstaffed dept ───────
+    # ── the approval seam: a starts-on-approval operation in an unstaffed dept ───────
     def test_an_unstaffed_starts_on_approval_routine_refuses_to_apply(self):
-        """A hand-written (not imported) internal routine starts on approval. Approving one in an
+        """A hand-written (not imported) internal operation starts on approval. Approving one in an
         unstaffed department must refuse the apply — the approval transaction aborts, the work is
         not finished — rather than light a schedule nothing can run."""
         a = self._unstaffed_routine("fast")     # not imported: no starts_disabled
@@ -186,11 +186,11 @@ class OperationalGates(LaneCase):
                          "the refused apply leaves the proposal pending, not half-applied")
 
     def test_the_imports_off_parking_is_not_gated(self):
-        """An imported routine lands OFF (I1): the parking state is the design, so approving it
+        """An imported operation lands OFF (I1): the parking state is the design, so approving it
         must succeed — the gate lives at enable, not at the import's parking approval."""
         sid = self._parked_import()
         self.assertFalse(self.k.schedules.get(sid)["enabled"],
-                         "the imported unstaffed routine parks OFF, approved — enable is the gate")
+                         "the imported unstaffed operation parks OFF, approved — enable is the gate")
 
     # ── F3: the backstop — doctor reports an enabled unstaffed schedule ───────────
     def test_doctor_reports_an_enabled_unstaffed_schedule(self):
@@ -218,7 +218,7 @@ class OperationalGates(LaneCase):
         self.k.org.create_dept("ghost", "Ghost", "A department nobody staffs")
         with mock.patch.object(self.k, "classify", return_value={"lane": "fast", "confidence": 0.99,
                                                                 "external_p": 0.10}):
-            a = self.k.add_routine("Ghost digest", "summarize the ghost pool", dept="ghost",
+            a = self.k.add_operation("Ghost digest", "summarize the ghost pool", dept="ghost",
                                    cron="0 9 * * *", workdir=str(self.workdir), deliver=True)
         plan = self.k.work.plan_for_approval(a["id"])
         reasons = json.loads(self.k.work.get(plan["id"])["grade_reasons"] or "[]")
@@ -247,7 +247,7 @@ class StaffingReach(KernelCase):
     """The staffing predicate must mirror the claim's reach, or it gates the wrong things. The
     claim's pool branch (`work.claim`): a claimant may pick up work in their OWN department, and
     an executive claimant additionally reaches no-dept work and verify stages of any department —
-    but NOT another department's plan or execute stages. So a full-lane routine in an unstaffed
+    but NOT another department's plan or execute stages. So a full-lane operation in an unstaffed
     department is missing plan too, even with a CEO in executive (who reaches only verify).
 
     **Reach and roles are different things (measured 2026-10-27, and this class holds the
@@ -261,7 +261,7 @@ class StaffingReach(KernelCase):
         self.k.org.create_dept("ghost", "Ghost", "A department nobody staffs")
         with mock.patch.object(self.k, "classify", return_value={"lane": None, "confidence": 0.0,
                                                                 "external_p": 0.10}):
-            a = self.k.add_routine("Ghost full", "the whole pipeline", dept="ghost", cron="0 9 * * *",
+            a = self.k.add_operation("Ghost full", "the whole pipeline", dept="ghost", cron="0 9 * * *",
                                    workdir=str(self.workdir), why="needs the pipeline")
         plan = self.k.work.plan_for_approval(a["id"])
         reasons = json.loads(self.k.work.get(plan["id"])["grade_reasons"] or "[]")
@@ -340,7 +340,7 @@ class StaffingReach(KernelCase):
                         driver="fake", reason="staffing", status="active")
         with mock.patch.object(self.k, "classify", return_value={"lane": "fast", "confidence": 0.99,
                                                                 "external_p": 0.10}):
-            a = self.k.add_routine("Ghost digest", "summarize", dept="ghost", cron="0 9 * * *",
+            a = self.k.add_operation("Ghost digest", "summarize", dept="ghost", cron="0 9 * * *",
                                    workdir=str(self.workdir))
         plan = self.k.work.plan_for_approval(a["id"])
         reasons = json.loads(self.k.work.get(plan["id"])["grade_reasons"] or "[]")

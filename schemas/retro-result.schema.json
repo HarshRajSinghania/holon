@@ -47,15 +47,15 @@
               "fast",
               "full"
             ],
-            "description": "fast: one session plans and acts (only work the kernel grades G0); script: a routine's approved command, run by the kernel"
+            "description": "fast: one session plans and acts (only work the kernel grades G0); script: an operation's approved command, run by the kernel"
           },
           "cron": {
             "type": "string",
-            "description": "makes the item a routine (a recurring job) on this 5-field schedule"
+            "description": "makes the item an operation (a recurring job) on this 5-field schedule"
           },
           "command": {
             "type": "string",
-            "description": "a script routine's command (lane script)"
+            "description": "a script operation's command (lane script)"
           },
           "rubric": {
             "type": "array",
@@ -69,7 +69,7 @@
           "intent"
         ]
       },
-      "description": "each becomes new work in the department, planned and approved like any other; one with a `cron` becomes a routine proposal for its approver"
+      "description": "each becomes new work in the department, planned and approved like any other; one with a `cron` becomes an operation proposal for its approver"
     },
     "objective_met": {
       "type": "boolean",

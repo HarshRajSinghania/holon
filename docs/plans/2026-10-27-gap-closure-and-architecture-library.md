@@ -77,7 +77,7 @@ Guard (two clauses, mutation-verified both directions):
 
 ### A4 (S3) — staff the events fixture
 
-`crates/operant-os/tests/events.rs:39-43` approves an `eng` routine with `lane='fast'` and no
+`crates/operant-os/tests/events.rs:39-43` approves an `eng` operation with `lane='fast'` and no
 employee. The kernel's staffing gate (2026-10-25, `7941b1f`) correctly refuses. One hire line in the
 fixture; the kernel needs no change.
 
@@ -160,7 +160,7 @@ the repo's own `citations` lint pack refuses those.
 | `lanes-and-cost.md` | script / fast / full, cheapest-first, the lane gate | `execution/lanes`, CONTRACT |
 | `knowledge-and-memory.md` | memory scopes, episodes, consolidation, the KB, recall | `capabilities/memory.py`, `kb.py`, `context.py` |
 | `feedback-loops.md` | metrics → retros → playbook refinement → new work | `execution/triggers`, `playbooks.py` |
-| `automation-and-scheduling.md` | routines, schedules, cron, triggers, the staffing gate | `execution/schedules.py`, `cron.py` |
+| `automation-and-scheduling.md` | operations, schedules, cron, triggers, the staffing gate | `execution/schedules.py`, `cron.py` |
 | `security-and-trust-boundary.md` | isolation, broker, run tokens, the Chair key | `execution/isolation.py`, `security.py` |
 
 Shipped with a `docs/architecture/README.md` index and a mermaid system diagram, so the library

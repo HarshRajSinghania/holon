@@ -11,7 +11,7 @@
 - [7. Operations](#7-operations)
 - [8. Scope: what a department may reach](#8-scope-what-a-department-may-reach)
 - [9. Machine checks: acceptance a command can decide](#9-machine-checks-acceptance-a-command-can-decide)
-- [10. Lanes, routines, rubrics and the decision model](#10-lanes-routines-rubrics-and-the-decision-model)
+- [10. Lanes, operations, rubrics and the decision model](#10-lanes-operations-rubrics-and-the-decision-model)
 - [11. Isolation: the trust boundary](#11-isolation-the-trust-boundary)
 - [12. Playbooks, refinement and objectives: the department's learning loop](#12-playbooks-refinement-and-objectives-the-departments-learning-loop)
 - [13. Smoke checks: is the infrastructure there](#13-smoke-checks-is-the-infrastructure-there)
@@ -146,7 +146,7 @@ change this policy. `holon charter autonomy` shows the effective policy per depa
 | `[retention]` | `messages_days` | 0 (keep) | days before `holon gc` prunes old messages |
 | `[retention]` | `backup_max_age_days` | 7 | `holon gc --apply` refuses without a backup newer than this; `--force` overrides |
 | `[retention]` | `backup_keep` | 3 | backups kept past `gc --apply`; the heartbeat prunes the rest, so the newest three survive a failure run |
-| `[pilot]` | `depts` | [] | pilot departments: anything the grade floor puts at G3 (outside reach) floors at G4 instead — the Chair approves each job, one by one; imported outside-reach routines also start disabled (I1) |
+| `[pilot]` | `depts` | [] | pilot departments: anything the grade floor puts at G3 (outside reach) floors at G4 instead — the Chair approves each job, one by one; imported outside-reach operations also start disabled (I1) |
 | `[secrets.dept.<slug>]` | `<ENV VAR>` = path | (none) | a department's secrets (G8): each key names an environment variable and points at a 0600 key file, resolved into the run's environment at claim — the value never lives in config; a key file that cannot be read refuses the run, never runs it with an empty string |
 | `[intake.dept.<slug>]` | `grade_floor`, `task_classes` | G1, any | G4, the Chair-key-free external intake: a department's intake key may file work into **that department only**, at or below `grade_floor` (G0–G4) and only in the named `task_classes`. The key is issued by `holon intake key <dept>` and lives with the scanner; only its hash is stored. It can file and nothing else: it never approves, never decides, and reaches no other command |
 | `[healing]` | `run_failures_for_incident` | 3 | runs of one stage that ended without a valid result before an incident opens; past it the stage waits 10 min before the next try, doubling per failure (at most a day) |
@@ -158,7 +158,7 @@ change this policy. `holon charter autonomy` shows the effective policy per depa
 | `[budget]` | `max_running_per_dept` | 0 (no cap) | runs a department may have in flight; `[budget.dept.<slug>]` overrides |
 | `[notify]` | `command` | "" (off) | run on each heartbeat that finds something new for the Chair; `{message}` is the text (an adapter fills this in, e.g. a chat CLI) |
 | `[notify]` | `dropped_marker` | "" (off) | text the command prints when it had nowhere to deliver. Exit 0 is the contract's proof of delivery, but a command that treats "nothing is configured" as a successful no-op exits 0 having delivered nothing. Name that text here and the heartbeat records a failed send and retries the digest instead of advancing its cursor. |
-| `[events]` | `cooldown_s` | 300 | an event routine (`routine add --on event:<pattern>`) fires at most once per this many seconds; the runtime that saw a matching event calls `holon routine fire` |
+| `[events]` | `cooldown_s` | 300 | an event operation (`operation add --on event:<pattern>`) fires at most once per this many seconds; the runtime that saw a matching event calls `holon operation fire` |
 | `[chair]` | `channels` | [] | `<platform>:<user id>` refs whose channel messages are the Chair's (H8); a runtime that fronts a channel may run Chair commands only for one of these — the broker still forbids agents every Chair command |
 | `[budget]` | `max_runs_per_dept_per_day` | 0 (no cap) | runs a department may start in 24 hours; its stages wait on the board beyond it |
 | `[budget]` | `tokens_per_run` | 0 (no cap) | per-run token cap compiled into `policy.json` (H5); `[budget.dept.<slug>]` then `[budget.employee.<id>]` override, last wins; a harness enforces it and reports stopping in `refusals` |
@@ -169,8 +169,8 @@ change this policy. `holon charter autonomy` shows the effective policy per depa
 | `[checks]` | `commands` | [] | commands the kernel runs in the workdir after every execute; `[checks.dept.<slug>]` and `[checks.class.<task_class>]` add their own (§9) |
 | `[checks]` | `timeout_s` | 600 | per check command |
 | `[lanes]` | `fast` | true | allow the fast lane (§10); off sends all work through the full pipeline |
-| `[lanes]` | `script_timeout_s` | 600 | how long the kernel lets a script routine run |
-| `[lanes]` | `external_p_max` | 0.5 | the decision model's probability that a job reaches outside the organization above which intake runs it full and a routine is floored at G3 |
+| `[lanes]` | `script_timeout_s` | 600 | how long the kernel lets a script operation run |
+| `[lanes]` | `external_p_max` | 0.5 | the decision model's probability that a job reaches outside the organization above which intake runs it full and an operation is floored at G3 |
 | `[classifier]` | `url`, `model`, `key_file` | "" (off) | the decision endpoint, the model for choice and yes/no questions, and the 0600 file its key is read from (§10) |
 | `[classifier]` | `noul_model` | "" | an optional cheaper yes/no-only model, used when every question is yes/no (the rubric judge) |
 | `[classifier]` | `timeout_s` | 15 | per decision call; a timeout is "no opinion" and takes the safe default |
@@ -200,7 +200,7 @@ upgrading the kernel, since migrations are forward-only.
 
 **What a backup carries.** The instance's own trees (`config`, `skills`, `bylaws`, `adapters`,
 `kb`), plus every instance-relative path a work names as its `workdir`: a workdir the instance
-owns is instance state, so what the routine writes there rides the backup. A workdir *outside*
+owns is instance state, so what the operation writes there rides the backup. A workdir *outside*
 the instance is another program's files and is deliberately not copied. The manifest records the
 trees it carried, and `holon doctor` reports `backup.uncovered` when the last backup did not
 carry a workdir a work names.
@@ -260,24 +260,24 @@ verification with its output: the work goes to rework (`execute#n`) and no verif
 When all pass, the results are posted on the work, and the verifier reads them in its context;
 sampled G0 work is only closed unverified after its checks pass.
 
-## 10. Lanes, routines, rubrics and the decision model
+## 10. Lanes, operations, rubrics and the decision model
 
 Every piece of work runs in a lane, and the organization uses the cheapest one that does the job
 reliably. Four agent sessions for a two-line change is the waste this removes.
 
 | Lane | Who does it | Sessions | When |
 |---|---|---|---|
-| `script` | the kernel runs an approved command in the workdir (`holon run-script`, spawned by the heartbeat) | 0 | a routine whose job is deterministic |
-| `fast` | one executor session plans and acts; no plan or approve stage | 1 | routine work: the kernel's grade floor is G0 (low risk, a task class with a verified track record), or a routine approved as fast |
+| `script` | the kernel runs an approved command in the workdir (`holon run-script`, spawned by the heartbeat) | 0 | an operation whose job is deterministic |
+| `fast` | one executor session plans and acts; no plan or approve stage | 1 | operation work: the kernel's grade floor is G0 (low risk, a task class with a verified track record), or an operation approved as fast |
 | `full` | research? → shape? → plan → approve → execute → verify | 2–6 | everything else, and whatever the others are unsure about |
 
 **Who picks the lane.** One-off work: `holon task add --lane auto` (the default) asks the decision
-model; a job it judges routine and internal is asked to run fast. A planner's decomposition may
+model; a job it judges operation and internal is asked to run fast. A planner's decomposition may
 mark a child `"lane": "fast"`. Either way the kernel decides: fast work whose grade floor is above
 G0 runs full, and the event says why (`execution.service.KernelRules.fast_refusal`). The executor of
 fast work can still escalate (`noop` with `blockers` sends it to plan).
 
-**Routines** are recurring jobs (the organization's cron jobs): `holon routine add` takes a title,
+**Operations** are recurring jobs (the organization's cron jobs): `holon operation add` takes a title,
 intent, department, cron and, for a script, its `--command`. The decision model classifies the job
 and the kernel enforces the lane cheapest first:
 - a job it judges deterministic must be a script: give `--command` (have the department write the
@@ -285,30 +285,30 @@ and the kernel enforces the lane cheapest first:
 - a requested lane cheaper than the model's is raised to it; a costlier one needs `--why`, which
   is recorded in the grade reasons the approver reads;
 - with the model off or unsure, the requested lane stands (default `full`).
-A routine runs unattended, so it is a proposal graded at least G2 (G3 when the model judges it
+A operation runs unattended, so it is a proposal graded at least G2 (G3 when the model judges it
 reaches outside the organization) for the approver that grade names; on approval its schedule
-starts (`holon routine list`). With `--deliver`, each finished firing's result goes to the Chair
+starts (`holon operation list`). With `--deliver`, each finished firing's result goes to the Chair
 through `[notify]` (a digest in the Chair's chat), retried by the heartbeat until it is sent.
 
-**A routine is staffed before it is lit (2026-10-25).** A schedule whose lane needs a body —
+**A operation is staffed before it is lit (2026-10-25).** A schedule whose lane needs a body —
 `fast` needs an executor, `full` needs a planner, an executor and a verifier — will not be armed
 in a department where no active employee performs those stages; the `script` lane needs nobody
 (the kernel is its runner). The same staffing predicate (which mirrors the claim's reach exactly:
 an employee picks up work in their own department, an executive additionally reaches no-dept work
 and verify stages anywhere) is enforced at four seams, so a system cannot be built into a state
 that cannot operate without a surface naming what is missing:
-- **the proposal** (`routine add` / an import): the grade reasons carry an "unstaffed for its
+- **the proposal** (`operation add` / an import): the grade reasons carry an "unstaffed for its
   lane" note naming the hire that fixes it — the proposal still lands, so architecture can be
   staged ahead of staffing, but the approver decides knowing it cannot run yet;
-- **the approval** of a starts-on-approval routine: refuses inside the approval transaction
-  rather than arm a clock nothing can serve (an imported routine that parks OFF skips this —
+- **the approval** of a starts-on-approval operation: refuses inside the approval transaction
+  rather than arm a clock nothing can serve (an imported operation that parks OFF skips this —
   its gate is the enable);
 - **`holon schedule enable`**: refuses an unstaffed lane, naming the hire; `--force` is the
   Chair's explicit word and is recorded in the event log;
 - **doctor's backstop** (`schedule.unstaffed`, an error the heartbeat escalates): an enabled
   schedule that became unstaffed — a fired employee, a transferred head — reaches the Chair
   regardless of which door the state came through. `schedule.workdir` (warning) is the same
-  class one layer down: an enabled script routine whose workdir is gone runs in its run
+  class one layer down: an enabled script operation whose workdir is gone runs in its run
   directory instead, silently doing the wrong work in the right way.
 
 `--deliver` with no `[notify]` command configured is named in the proposal's grade reasons too:
@@ -376,30 +376,30 @@ reply, invoice, order, submit, follow-up* — is held at G3 whatever the model s
 rate-limited or down has no opinion, and "no opinion" must never read as "internal" for a job that
 says *send*. It is not a ceiling — the model can still hold a job whose words name no verb.
 
-**An import fails closed.** A routine that arrives through `holon routine import` lands as a
+**An import fails closed.** A operation that arrives through `holon operation import` lands as a
 proposal, and it lands **disabled** when it is outside-reach *or when the kernel could not judge
 it* (no model opinion and no outside-reach verb in its words). One bulk approval is not per-job
-activation; the Chair enables each one with `holon schedule enable` after reading it. A routine the
+activation; the Chair enables each one with `holon schedule enable` after reading it. A operation the
 Chair wrote by hand is not affected: it is the Chair's own act and starts on approval.
 
-A routine may fire on **events** instead of a clock: `--on event:<pattern>` (no cron), e.g.
+A operation may fire on **events** instead of a clock: `--on event:<pattern>` (no cron), e.g.
 `event:webhook:invoice.*`. The runtime that sees the event — a gateway, a webhook receiver —
 matches the published `api_triggers` patterns against it and calls
-`holon routine fire <schedule> --payload …`, at most once per `[events] cooldown_s`; the payload
+`holon operation fire <schedule> --payload …`, at most once per `[events] cooldown_s`; the payload
 rides on the firing's work as a message, where the executor's brief shows it. Holon never
 matches events itself, and an event trigger never fires by time (`take_due` ignores it).
 
-`holon routine import <cron-jobs/*.md> --dept <slug>` reads legacy cron-job protocol files
+`holon operation import <cron-jobs/*.md> --dept <slug>` reads legacy cron-job protocol files
 (frontmatter `name`, `schedule`, `description`, `no_agent` + `script`, `deliver`, `status`) and shows the
-routines they would become; `--apply` proposes each active one (paused ones are skipped). Each firing of a script or fast routine enters at execute with the
-standing plan; a full routine plans every firing afresh.
+operations they would become; `--apply` proposes each active one (paused ones are skipped). Each firing of a script or fast operation enters at execute with the
+standing plan; a full operation plans every firing afresh.
 
-**Rubric and gold standard.** A routine carries a rubric (`--rubric`, repeatable; else its
+**Rubric and gold standard.** A operation carries a rubric (`--rubric`, repeatable; else its
 acceptance). After a script or fast result passes its machine checks, the kernel grades what it did
 again (a result beyond its approved grade is a *lane breach*: the Chair is told and a verifier
 looks), then asks the decision model, per criterion, the probability that the result meets it, and
 whether it is as good as the **gold standard**: the last result a verifier or the Chair passed for
-the same routine (else the same task class and department), which the executor also sees in its
+the same operation (else the same task class and department), which the executor also sees in its
 context. Every criterion at or above `pass_p` closes the work without a verifier (the result stays
 unverified, so it never earns trust or becomes a gold standard); anything lower, and a sample of fast
 results (`verify_sample_rate`), keeps the verifier, who reads the judge's scores. `holon metrics`
@@ -411,7 +411,7 @@ with calibrated probabilities in about a second, without spending an agent sessi
 
 | Use | Question | Safe default when off or unsure |
 |---|---|---|
-| lane at intake and for routines | choice: script, fast or full | full |
+| lane at intake and for operations | choice: script, fast or full | full |
 | reach outside the organization | yes/no | the requested lane; no G3 floor |
 | rubric judge | yes/no per criterion, and against the gold standard | a verifier |
 | failure triage on incidents | choice: harness, model, brief, environment or work | the incident without a cause line |
@@ -429,7 +429,7 @@ process runs as the agent's own Unix user, an agent with a shell can read the Ch
 
 | Part | Runs as | Does |
 |---|---|---|
-| runner (`python3 -m holon.execution.isolation runner`, a system service root installs once) | the agent user | starts harnesses, machine checks and script routines for the kernel, with only the run's environment; stops them when the kernel says the run is over |
+| runner (`python3 -m holon.execution.isolation runner`, a system service root installs once) | the agent user | starts harnesses, machine checks and script operations for the kernel, with only the run's environment; stops them when the kernel says the run is over |
 | broker (`holon broker`, a user service) | the kernel's user | answers agents' `holon` calls (and `holon mcp`'s): authenticates each by run token or employee key, never the Chair key; agent commands only; ignores `--home`; reads no file the client did not send |
 | run directories | the kernel's user, sticky, the agent granted by ACL | the agent reads its brief and writes `result.json`; it cannot replace what the kernel wrote |
 | ACLs (`holon isolation apply`) | the kernel's user | the agent may traverse only the directories leading to its trees (`[scope]` roots, `[isolation] grants`, harness homes), the kernel distribution and harness binaries; every other entry on the way, and every future one, is denied to it |
@@ -469,7 +469,7 @@ carries a **playbook** that improves from its own evidence, and every set of job
 
 **Playbooks.** A playbook is a department skill of kind `playbook` (`holon/capabilities/playbooks.py`):
 `SKILL.md` holds the objective and protocol (with a `version`), `rubric.md` the criteria, one `- `
-line each. A routine gets one when it is approved (`routine-<slug>`, version 1 from its intent and
+line each. A operation gets one when it is approved (`operation-<slug>`, version 1 from its intent and
 rubric); a task class gets one when its department has `class_after` verified results
 (`class-<task_class>`, written by refinement work from those results). Plan, execute and verify
 stages of work that follows a playbook get it in their context, the execute stage records the
@@ -488,15 +488,15 @@ version, so `holon playbook show` tells whether the refinement helped. Both the 
 rubric evolve: what "good" means sharpens as the terrain is understood.
 
 **Objectives** (`holon objective add --key-result …`). An objective's planner is told to decompose
-it into one-off work and routines: a child with a `cron` is a routine (`lane`, `command` for a
-script, `rubric`). On approval the kernel creates the routines (`Kernel._routines_from_items`): the
+it into one-off work and operations: a child with a `cron` is an operation (`lane`, `command` for a
+script, `rubric`). On approval the kernel creates the operations (`Kernel._routines_from_items`): the
 decomposition's decider also approves each one whose grade is theirs; a job the classifier judges
 deterministic becomes work to write its script. Everything the objective spawns carries its
 `objective_id`, and the objective stays open (`waiting`). When its pool finishes a cycle (nothing of
 its own in flight and something finished), or every `review_every_days` while anything moves, the
 heartbeat opens a review: a retro on the objective whose context is its dashboard (`holon objective
-show`: key results, work, routines with their playbook versions and criterion means, latest
-results). Its actions become new work under the objective, or routine proposals; `objective_met`
+show`: key results, work, operations with their playbook versions and criterion means, latest
+results). Its actions become new work under the objective, or operation proposals; `objective_met`
 closes it. The pool therefore improves at two levels: each job's playbook, and the set of jobs.
 
 ## 13. Smoke checks: is the infrastructure there
@@ -523,7 +523,7 @@ everyone blocks every department except the incident department, which must be a
 non-critical failure is a warning. `holon smoke` runs them now.
 
 `holon lint` checks what the instance will run (`ref.command`, `ref.path`): every executable named
-in `[checks]`, smoke checks, script routines and installed drivers must exist on the machine, and
+in `[checks]`, smoke checks, script operations and installed drivers must exist on the machine, and
 absolute paths they name should; a department with its own reach or scripts but no smoke checks is
 reported (`ref.smoke`).
 

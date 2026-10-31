@@ -66,9 +66,9 @@ COMMON = {
 WORK_ITEM = {"title": F("text", required=True), "intent": F("text", required=True), "acceptance": TEXT,
              "dept": F("str"), "task_class": F("str"), "priority": F("int", lo=0, hi=4),
              "lane": F("str", enum=vocab.LANES, doc="fast: one session plans and acts (only work the kernel grades "
-                                                   "G0); script: a routine's approved command, run by the kernel"),
-             "cron": F("str", doc="makes the item a routine (a recurring job) on this 5-field schedule"),
-             "command": F("str", doc="a script routine's command (lane script)"),
+                                                   "G0); script: an operation's approved command, run by the kernel"),
+             "cron": F("str", doc="makes the item an operation (a recurring job) on this 5-field schedule"),
+             "command": F("str", doc="a script operation's command (lane script)"),
              "rubric": STR_LIST}
 
 SPECS: dict[str, dict[str, dict[str, F]]] = {
@@ -130,7 +130,7 @@ SPECS: dict[str, dict[str, dict[str, F]]] = {
         "summary": F("text", required=True), "cause": F("text", required=True, doc="the root cause, not the symptom"),
         "actions": F("list", items=F("object", fields=dict(WORK_ITEM)),
                      doc="each becomes new work in the department, planned and approved like any other; one with a "
-                         "`cron` becomes a routine proposal for its approver"),
+                         "`cron` becomes an operation proposal for its approver"),
         "objective_met": F("bool", doc="an objective's review: its key results are met, so it closes"),
     }},
 }

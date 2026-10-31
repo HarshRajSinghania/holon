@@ -35,14 +35,14 @@ def in_home_workdirs(k) -> list[str]:
     fixed tree already carries.
 
     Measured 2026-10-25 on the live instance: 19 tasks keep their workdir INSIDE
-    `$HOLON_HOME` -- the recurring routines' own trees (`notes-digest`,
-    `routine-disk-usage`, `routine-notes-digest`, `routines/disk-usage`,
-    `routines/notes-digest`, `kb`). The fixed tree set (`TREES`) did not name the
-    routine trees, so the bytes those routines wrote did not ride the backup, on the one
+    `$HOLON_HOME` -- the recurring operations' own trees (`notes-digest`,
+    `operation-disk-usage`, `operation-notes-digest`, `operations/disk-usage`,
+    `operations/notes-digest`, `kb`). The fixed tree set (`TREES`) did not name the
+    operation trees, so the bytes those operations wrote did not ride the backup, on the one
     machine where the organization exists nowhere else.
 
     The rule: the workdir's OWN relative path, not its top-level ancestor. A workdir at
-    `routines/disk-usage` carries that path, not the whole `routines` tree -- and a
+    `operations/disk-usage` carries that path, not the whole `operations` tree -- and a
     workdir inside `execution/runtime/runs/` carries that one run directory, so the
     `with_runs` switch still means what it says.
 
@@ -134,7 +134,7 @@ def backup(k, dest: str, with_runs: bool = False) -> dict:
             carried.append(t)
         # a tree that is not on disk is NOT carried and NOT promised: a workdir the DB
         # names but the disk does not hold has nothing to carry (measured on the live
-        # instance, 2026-10-26: two routine workdirs that never ran), and a manifest
+        # instance, 2026-10-26: two operation workdirs that never ran), and a manifest
         # that promises them makes a restore report success while the tree never comes
         # back -- and silences doctor's `backup.uncovered`, which reads the manifest.
         # The missing-workdir case is doctor's own finding, not the backup's.
@@ -169,7 +169,7 @@ def restore(k, src: str) -> dict:
         source.close()
     if (src_p / "holon.toml").exists():
         shutil.copy2(src_p / "holon.toml", k.home.config_file)
-    # parents before children: a restore that handled `routines` before `routines/disk-usage`
+    # parents before children: a restore that handled `operations` before `operations/disk-usage`
     # would wipe the child it had just restored.
     trees = sorted(set((check["manifest"].get("trees") or list(TREES)) + ["execution/runtime/runs"]),
                    key=lambda t: (t.count("/"), t))

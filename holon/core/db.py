@@ -195,3 +195,71 @@ def event_hash(prev_hash: str, ts: str, entity: str, entity_id: str, frm: str | 
                actor: str | None, note: str | None) -> str:
     fields = [prev_hash, ts, entity, entity_id, frm or "", to or "", actor or "", note or ""]
     return hashlib.sha256("\x1f".join(fields).encode()).hexdigest()
+
+
+def walk_chain(conn: sqlite3.Connection, stop_at_first: bool = True) -> dict:
+    """Walk the audit trail's hash chain and report every break, not just the first.
+
+    G2, 2026-10-30. `doctor` walked the chain, found the first break at seq N and **stopped** --
+    so an operator holding "event 1815" had to re-derive by hand whether the break was one event
+    or a thousand, whether anything after it could be trusted, and what the honest next act was.
+    The ledger's own 2026-10-24 row had already proved a tampered chain cannot be healed row-by-row
+    (healing one row's hash breaks the next row's `prev_hash` link), so the missing piece was never
+    a repair -- it was a report. The two acts a report can name (an attestation sealing what is
+    beyond repair, and a truncation withdrawing a rewritten tail) are the Chair's to authorize, and
+    neither is written yet; this walker deliberately names no command that does not exist, because
+    a message pointing at an unwritten command is the remediation class the ledger already carries.
+
+    The distinction that makes the report useful, measured rather than assumed: a chain with ONE
+    break whose remaining rows each verify is a single edited or removed event, while a run of
+    `re-linked` rows is a tail that was rewritten. Those need different acts, so the walker
+    separates them instead of returning a count.
+
+    `stop_at_first` exists because doctor keeps its one-error-per-check behaviour by calling with
+    it, and the same walker serves `holon audit walk`, which does not. One implementation, two
+    callers: two walkers would drift the moment one learned something the other did not.
+    """
+    breaks: list[dict] = []
+    checked = 0
+    prev = ""
+    last_ok_seq: int | None = None
+    for e in conn.execute("SELECT * FROM events WHERE hash IS NOT NULL ORDER BY seq"):
+        expected = event_hash(e["prev_hash"] or "", e["ts"], e["entity"], e["entity_id"],
+                              e["from_status"], e["to_status"], e["actor"], e["note"])
+        if e["hash"] != expected:
+            # The row's own content does not produce the hash stored on it: an edited row.
+            kind = "edited"
+        elif e["prev_hash"] != prev:
+            kind = "re-linked"      # the row is self-consistent but points at the wrong predecessor
+        else:
+            kind = None
+        if kind:
+            breaks.append({"seq": e["seq"], "reason": kind,
+                           "entity": e["entity"], "entity_id": e["entity_id"],
+                           "ts": e["ts"], "actor": e["actor"],
+                           "note": (e["note"] or "")[:200],
+                           # the row this one claims to follow, when the trail holds it
+                           "prev_hash": e["prev_hash"]})
+        else:
+            last_ok_seq = e["seq"]
+        # `prev` advances along what the ROWS say, not along what verifies: `prev_hash` is the
+        # link the row itself declares, so following it is how the walk detects a later row that
+        # silently re-linked. Not advancing is the failure mode this walker's first draft had --
+        # one edited row then made every following row look broken too, which reports a
+        # catastrophic rewrite where a single edit stands, and an operator who truncates on that
+        # reading destroys a trail that only needed attesting.
+        prev = e["hash"]
+        checked += 1
+        if breaks and stop_at_first:
+            break
+    # What follows the last break is what decides the honest act, and it is read from the rows
+    # rather than inferred from the break count: when every row after the first break is itself
+    # self-consistent, a single event was edited; when the rows after it are also broken, the
+    # tail was rewritten. `re-linked` rows in a run are that rewrite.
+    kinds = [b["reason"] for b in breaks]
+    tail_rewritten = len(breaks) > 1 and all(k == "re-linked" for k in kinds)
+    return {"checked": checked, "breaks": breaks, "last_ok_seq": last_ok_seq,
+            "tail_rewritten": tail_rewritten,
+            "one_edited_row": len(breaks) == 1 and kinds[0] == "edited",
+            "first_break_seq": breaks[0]["seq"] if breaks else None,
+            "break_count": len(breaks)}

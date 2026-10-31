@@ -69,6 +69,7 @@ is not in this file fails `holon lint` — so this file can never drift from the
 | `holon post-execute` <work_id> | kernel | run a handed-in result's machine checks and rubric judge (the heartbeat spawns this) |
 | `holon audit judge` `--note` <ref> <verdict> | chair | re-judge a sampled approval |
 | `holon audit samples` `--all` | any | employee approvals sampled for the Chair to re-judge |
+| `holon audit walk` | any | walk the audit trail's hash chain and report EVERY break, not just the first: which event, why it fails, and whether the tail was rewritten (G2) |
 
 ## a system (department)
 

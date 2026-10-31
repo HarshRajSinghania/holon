@@ -14,7 +14,7 @@ from pathlib import Path
 
 from holon.cli import _distribution_root   # the same rule `holon init` records, so the two agree
 from holon.core import vocab
-from holon.core.db import connect, event_hash, now
+from holon.core.db import connect, now
 from holon.execution import autonomy
 import time
 
@@ -590,15 +590,15 @@ def run(k) -> list[dict]:
                 "the heartbeat's tick stamp (.clock/last_tick) is unreadable: it should hold one integer, "
                 "the unix seconds of the last successful tick")
 
-    # the audit trail
-    prev = ""
-    for e in q("SELECT * FROM events WHERE hash IS NOT NULL ORDER BY seq"):
-        expected = event_hash(e["prev_hash"] or "", e["ts"], e["entity"], e["entity_id"], e["from_status"],
-                              e["to_status"], e["actor"], e["note"])
-        if e["prev_hash"] != prev or e["hash"] != expected:
-            add("error", "audit.chain", f"event {e['seq']} breaks the hash chain (edited, deleted, or inserted)")
-            break
-        prev = e["hash"]
+    # the audit trail (G2, 2026-10-30: the shared walker, not a second copy of its loop)
+    from holon.core.db import walk_chain
+    chain = walk_chain(k.wconn)
+    if chain["breaks"]:
+        b = chain["breaks"][0]
+        more = ("" if chain["break_count"] == 1 else
+                f" — and {chain['break_count'] - 1} more break(s) after it, named by `holon audit walk`")
+        add("error", "audit.chain", f"event {b['seq']} breaks the hash chain ({b['reason']}: edited, "
+                                     f"deleted, or inserted){more}")
 
     # security
     if not k.auth.configured:

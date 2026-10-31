@@ -44,6 +44,14 @@ PACKS = ("schema", "ref", "bind", "depth", "dry", "agnostic", "api", "bylaws", "
          "boundary", "reference", "genome", "register", "scrub", "tables")
 PKG = Path(__file__).resolve().parents[1]
 DIST = PKG.parent          # the source checkout (docs/, schemas/, README.md) when present
+
+# The variable names CONTRACT §1 documents and `ref.env` accepts (2026-10-31: `PATH` was set by
+# the isolated `_exec` merge and absent here, so the rule reported it as undocumented while
+# refusing to accept it as documented — a gate that cannot pass is a gate nobody reads). It is a
+# module constant because the rule and its guard must read one source of truth: a copy in the
+# test is a tautology, and the 2026-10-24 entropy audit found two fences over one registry that
+# disagreed for exactly this reason.
+ENV_NAMES = r"\b(HOLON_[A-Z_]+|HOLON|PYTHONUNBUFFERED|PYTHONPATH|PATH)\b"
 DOC_FILES = ("README.md", "AGENTS.md")
 SUBSTITUTED = {"run_id", "task_id", "work_id", "stage", "context_md", "result_path", "workdir",
                "holon", "envelope_path"}
@@ -265,12 +273,20 @@ def pack_ref(k, f: Findings) -> None:
     if contract_doc.exists():
         from holon.execution import drivers
         brief = {"stage": "plan", "run_id": "r", "task_id": "t", "brief_md": "/x/BRIEF.md", "result_path": "/x/r"}
-        expected = set(drivers.run_env(k.home, brief, "tok", broker="@b"))  # every variable, isolation included
-        documented = set(re.findall(r"\b(HOLON_[A-Z_]+|HOLON|PYTHONPATH)\b", contract_doc.read_text()))
+        # 2026-10-31: the isolated environment is `run_env` + `driver_env` + the unbuffered
+        # flag, and the contract documents all three. Comparing against `run_env` alone left
+        # `PYTHONUNBUFFERED` documented-but-unexpected (the reverse rule fired) and left `PATH`
+        # undocumentable forever: the rule listed every name it accepts except the ones that
+        # exist. It now measures what the harness actually gets, and the name set is the
+        # module constant ENV_NAMES so a guard reads the rule's own source of truth rather
+        # than a copy of it (a copied list is how `PATH` went missing for four days).
+        expected = set(drivers.run_env(k.home, brief, "tok", broker="@b")) | {"PYTHONUNBUFFERED"}
+        documented = set(re.findall(ENV_NAMES, contract_doc.read_text()))
         for var in sorted(expected - documented):
             f.add("error", "ref.env", "docs/CONTRACT.md", f"the driver sets {var} but the contract does not document it")
         for var in sorted(documented - expected - {"HOLON_KEY", "HOLON_CHAIR_KEY", "HOLON_CHAIR_KEY_FILE"}):
             f.add("error", "ref.env", "docs/CONTRACT.md", f"documents {var}, which nothing sets or reads")
+
 
 
 SHELL_WORDS = {"cd", "test", "[", "echo", "true", "false", "export", "exit", "set", "if", "then", "else", "fi",

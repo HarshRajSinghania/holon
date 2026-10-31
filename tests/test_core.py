@@ -5,6 +5,8 @@ import ast
 import contextlib
 import io
 import json
+import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -16,7 +18,7 @@ from pathlib import Path
 from holon.capabilities.context import compile_context
 from holon.core import contract, vocab
 from holon.core.contract import EnvelopeError
-from holon.core.db import connect, log_event, migrate
+from holon.core.db import connect, log_event, migrate, walk_chain
 from holon.core.ids import new_id, ulid
 from holon.execution.cron import Cron, CronError
 from holon.execution.drivers import extract_last_json
@@ -168,6 +170,176 @@ class Migrations(unittest.TestCase):
                                                           e["from_status"], e["to_status"], e["actor"],
                                                           e["note"]), f"event {e['seq']} hash mismatch")
             prev = e["hash"]
+
+    def test_a_chain_with_two_breaks_reports_both_not_just_the_first(self):
+        """G2, 2026-10-30. `doctor` walked the chain and stopped at the first break, so the one
+        instrument that names a tampered trail named ONE event when the trail carried TWO. An
+        operator who fixed the first break had already been told the trail was fine past it.
+
+        The guard plants a **two-break** chain -- two independent edits, far apart -- and asserts
+        the walk reports both. `stop_at_first=True` keeps doctor's one-error-per-check shape, and
+        the same walker with `stop_at_first=False` is what `holon audit walk` uses.
+
+        Mutation-verified 2026-10-30 by running four mutations, not by reading: (1) the
+        shipped stop-at-first restored for every path fails on the second break (`1 != 2`);
+        (2) both break kinds flattened to one word fails on the reason assertions; (3) the CLI's
+        wrong "a single event was edited" sentence beside two named seqs fails the shape guard;
+        (4) reading `tail_rewritten` off the break count instead of the rows' kinds fails the
+        first assertion. One attempted mutation was a null test (`if False` left the full list in
+        place) and is recorded as such rather than counted as verification.
+        """
+        from holon.core import db as db_mod
+
+        d = Path(tempfile.mkdtemp())
+        conn = connect(d / "work.db")
+        migrate(conn, "work")
+        for i in range(1, 9):
+            db_mod.log_event(conn, "task", f"t{i}", None, None, "chair", f"note {i}")
+
+        # Two independent edits: each tampered row no longer hashes to its stored value, and both
+        # are `edited`. Every row after each edit still verifies, so the walk must not read this
+        # as a rewritten tail.
+        conn.execute("UPDATE events SET note='tampered one' WHERE seq=3")
+        conn.execute("UPDATE events SET note='tampered two' WHERE seq=7")
+
+        w = walk_chain(conn, stop_at_first=False)
+        self.assertEqual(w["break_count"], 2,
+                         f"both breaks reported, got {[b['seq'] for b in w['breaks']]}")
+        self.assertEqual([b["seq"] for b in w["breaks"]], [3, 7])
+        self.assertEqual([b["reason"] for b in w["breaks"]], ["edited", "edited"])
+        self.assertFalse(w["tail_rewritten"],
+                         "rows after each edit still verify: two edits, not a rewritten tail")
+
+    def test_the_walk_names_the_shape_not_the_count_and_one_edit_is_one(self):
+        """The same walker's CLI half. G2, 2026-10-30.
+
+        Two guards, because two edits and one edit read DIFFERENTLY and an operator acts on the
+        sentence, not the count:
+
+        1. Two breaks far apart must NOT read "a single event was edited" -- the first draft of
+           the CLI text said exactly that beside two named seqs, which would have told an
+           operator one of the two edits did not happen. The guard runs the command as printed.
+        2. One edited row must read "a single event" -- the opposite half, and a guard that only
+           holds the first is satisfied by a message that never says anything.
+        """
+        import subprocess
+        from holon.core import db as db_mod
+        from holon.core.paths import Home
+        from holon.execution.service import Kernel
+
+        # Build a real instance the way KernelCase does, so the CLI reads the SAME work.db this
+        # guard tampers. Planting `work.db` at the home root instead is the null-test shape: the
+        # kernel migrates a fresh database at `execution/runtime/work.db` and reports a clean chain.
+        def instance() -> tuple[Home, Kernel]:
+            root = Path(tempfile.mkdtemp(prefix="holon-audit-"))
+            home = Home(root / "home")
+            home.root.mkdir(parents=True)
+            home.config_file.write_text("[pipeline]\nresearch = \"never\"\nshape = \"never\"\n"
+                                        "retro = \"never\"\n")
+            return home, Kernel(home)
+
+        env = dict(os.environ, PYTHONPATH=str(REPO))
+
+        # Two edits, far apart
+        home, k = instance()
+        for i in range(1, 10):
+            db_mod.log_event(k.wconn, "task", f"t{i}", None, None, "chair", f"note {i}")
+        k.wconn.execute("UPDATE events SET note='tampered one' WHERE seq=3")
+        k.wconn.execute("UPDATE events SET note='tampered two' WHERE seq=8")
+        k.wconn.commit()
+
+        p = subprocess.run([sys.executable, "-m", "holon", "--home", str(home.root), "audit", "walk"],
+                           capture_output=True, text=True, env=env, timeout=300)
+
+        self.assertEqual(p.returncode, 0, f"audit walk failed: {p.stderr[-500:]}")
+        self.assertIn("seq 3", p.stdout, f"the first break is named by seq: {p.stdout}")
+        self.assertIn("seq 8", p.stdout, f"the second break is named by seq: {p.stdout}")
+        # `task:` is the entity prefix and each tampered row must name its own entity id
+        self.assertEqual(p.stdout.count("task:t"), 2, f"both breaks name their entity: {p.stdout}")
+        self.assertNotIn("a single event was edited", p.stdout,
+                         "two edits must not be reported as one")
+        self.assertIn("last event that verifies", p.stdout)
+
+        # One edit only: the opposite reading, on the same walker
+        home2, k2 = instance()
+        for i in range(1, 6):
+            db_mod.log_event(k2.wconn, "task", f"t{i}", None, None, "chair", f"note {i}")
+        k2.wconn.execute("UPDATE events SET note='one tamper' WHERE seq=4")
+        k2.wconn.commit()
+        p2 = subprocess.run([sys.executable, "-m", "holon", "--home", str(home2.root), "audit", "walk"],
+                            capture_output=True, text=True, env=env, timeout=300)
+        self.assertIn("a single event was edited", p2.stdout,
+                      f"one edit reads as one: {p2.stdout}")
+        self.assertIn("1 break", p2.stdout, f"and reports one break: {p2.stdout}")
+
+    def test_doctor_run_never_rebinds_the_connection_it_reads_through(self):
+        """G2's own second draft broke doctor, and the break was one name.
+
+        Wiring the shared chain walker into `doctor.run` first named its result `w` — the same
+        local `run` already used for `k.wconn`. Everything downstream that read `w.execute(...)`
+        then hit `AttributeError: 'dict' object has no attribute 'execute'`, so the audit-chain
+        fix silenced doctor's taxonomy check, its reach check and its workdir check. The suite
+        caught it (three Taxonomy errors); the guard is written so the next edit cannot land it
+        silently.
+
+        An AST scan, because the failure is a *shape*: the connection name `w` is bound
+        once at the top of `run` and read by a dozen checks, so a second binding of the same
+        name is the defect. It is mutation-verified by re-binding the name, which is exactly the
+        first draft's edit.
+        """
+        import ast
+
+        src = REPO.joinpath("holon", "integrity", "doctor.py").read_text()
+        run = next(n for n in ast.walk(ast.parse(src))
+                   if isinstance(n, ast.FunctionDef) and n.name == "run")
+        bound: dict[str, int] = {}
+        for node in ast.walk(run):
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name):
+                        bound[t.id] = bound.get(t.id, 0) + 1
+        self.assertEqual(bound.get("w"), 1,
+                         "`w` is the work connection, bound once at the top of `run` and read by "
+                         "every check below: a second binding re-points it and every later "
+                         f"`w.execute(...)` dies. Bindings: {sorted(bound)}")
+
+    def test_the_env_rule_can_be_satisfied_for_every_variable_the_driver_sets(self):
+        """`ref.env` read a FIXED list of variable names and compared the driver's real
+        environment against it. 2026-10-31, on a tree that was otherwise 0/0: `PATH` — set by
+        the isolated `_exec` merge (2026-10-26) — was in the driver's environment and absent
+        from the rule's list, so the lint reported "the driver sets PATH but the contract does
+        not document it" for a variable the rule would not accept from a document even if it
+        were written. The distribution's own gate could not pass.
+
+        The guard asserts the invariant behind the rule rather than its wording: every name the
+        harness actually gets must be reachable in the contract's own table. It reads the rule's
+        own ENV_NAMES constant, so it measures the rule rather than a copy of it — the first
+        draft re-used the same hardcoded list and PASSED while `PATH` was missing from the rule,
+        which is the tautology the 2026-10-24 entropy audit recorded (two fences over one
+        registry, each agreeing with itself).
+
+        Mutation-verified 2026-10-31 by removing `PATH` from ENV_NAMES: the rule then reports
+        `ref.env` (measured by running the lint) and this guard fails naming `PATH`.
+        """
+        from holon.core.paths import Home
+        from holon.execution import drivers
+        from holon.execution.service import Kernel
+        from holon.integrity import lint as lint_mod
+
+        root = Path(tempfile.mkdtemp(prefix="holon-env-"))
+        home = Home(root / "home")
+        home.root.mkdir(parents=True)
+        home.config_file.write_text("[pipeline]\nresearch = \"never\"\n")
+        k = Kernel(home)
+        brief = {"stage": "plan", "run_id": "r", "task_id": "t", "brief_md": "/x/BRIEF.md",
+                 "result_path": "/x/r"}
+        expected = set(drivers.run_env(k.home, brief, "tok", broker="@b")) | {"PYTHONUNBUFFERED"}
+        # the rule's OWN name set, never a copy
+        accepted = set(re.findall(lint_mod.ENV_NAMES, (REPO / "docs" / "CONTRACT.md").read_text()))
+        undocumentable = sorted(expected - accepted - {"HOLON_KEY", "HOLON_CHAIR_KEY"})
+        self.assertEqual(undocumentable, [],
+                         "the driver sets variables the contract's rule would never accept as "
+                         "documented — the gate could not pass, so no reader trusts it")
 
     def test_idempotent(self):
         conn = sqlite3.connect(":memory:", isolation_level=None)

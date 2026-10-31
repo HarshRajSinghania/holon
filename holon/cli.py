@@ -1667,6 +1667,36 @@ def cmd_guards(args, k):
          or "no guards registered: an incident fix's `guard` field registers one")
 
 
+@command("audit walk", "any", "walk the audit trail's hash chain and report EVERY break, not "
+         "just the first: which event, why it fails, and whether the tail was rewritten (G2)",
+         mutates=False)
+def cmd_audit_walk(args, k):
+    from holon.core.db import walk_chain
+    w = walk_chain(k.wconn, stop_at_first=False)
+    lines = []
+    for b in w["breaks"]:
+        lines.append(f"seq {b['seq']:<8} {b['reason']:<10} {b['entity']}:{b['entity_id']}  "
+                     f"{b['ts']}  by {b['actor']}" + (f"  — {b['note']}" if b["note"] else ""))
+    if not lines:
+        text = f"the chain holds: {w['checked']} events verified, no break"
+    else:
+        # The shape is read from the rows, never from the count: two edits far apart are two
+        # edits, and an operator reading "a single event was edited" beside two named seqs would
+        # conclude one of them did not happen.
+        if w["tail_rewritten"]:
+            shape = ("the tail was REWRITTEN: every event from the first break onward also fails, "
+                     "so nothing after it can be trusted")
+        elif w["one_edited_row"]:
+            shape = "a single event was edited, and every event after it still verifies"
+        else:
+            shape = (f"{w['break_count']} separate events were edited or removed, and the rows "
+                     "between and after them still verify")
+        text = (f"{w['break_count']} break(s) in {w['checked']} events: {shape}\n"
+                + "\n".join(lines)
+                + f"\nlast event that verifies: {w['last_ok_seq']}")
+    _out(args, w, text)
+
+
 @command("bylaws sync", "chair", "regenerate the units tables from $HOLON_HOME/bylaws/units/*.toml "
          "(the only writer; refuses on a manifest that does not parse)")
 def cmd_bylaws_sync(args, k):

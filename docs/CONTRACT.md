@@ -57,6 +57,7 @@ Environment in push mode:
 | `HOLON_RUN_TOKEN` | authenticates this employee for this run only (§6) |
 | `HOLON_BROKER` | set under isolation (BYLAWS §11): the broker's address; `holon` sends every call there |
 | `PYTHONUNBUFFERED` | set for the child: a harness that buffers its stdout loses everything it had written when it is stopped, which is the output a stopped run is judged on |
+| `PATH` | the kernel's own base path, so an isolated spawn finds the commands it is fenced to (`~/.local/bin` included, where every granted harness lives) without inheriting the dispatcher's |
 
 The kernel never passes `HOLON_CHAIR_KEY` to a harness. Under isolation the harness gets only these
 variables and the driver's `[env]`, added to the agent user's own environment, never the kernel's.

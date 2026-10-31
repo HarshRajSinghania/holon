@@ -414,7 +414,7 @@ the session's fourth and fifth of that class, and it is why the mutation is not 
 | 4 | **§7** — five register rows corrected in place | **done, `1340371`** | A | lint `register` 0/0 |
 | 5 | **G1a** — repair the drifted applied reach | **done, today** | A | `isolation.reach` 3 → **0**, and the harness boots |
 | 6 | **G1b** — chown the adapter home so the harness opens its db | **done, today (the Chair's root shell)** | Chair | a dispatched run's `status` is not `failed` |
-| 7 | **G2.1** — `holon audit walk` reports every break | **done, today, by a concurrent session** | A | a two-break chain, both named |
+| 7 | **G2.1** — `holon audit walk` reports every break | **done, today, by this session; the row's earlier "concurrent session" note was corrected in place 2026-10-31** | A | a two-break chain, both named |
 | 7b | **the run's environment carries a PATH** | **done, today, `2d891ef`** | A | `test_the_push_run_carries_a_path_and_an_invocable_kernel_command` |
 | 8 | **G2.2/3** — attest, then truncate | **open — the Chair's hand on a destructive command** | Chair | `--force`, and the named backup |
 | 9 | **`schedule.nowake`** — the one new error this session created | **open, and the Chair's product call** | Chair | see below |

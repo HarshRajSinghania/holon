@@ -224,13 +224,24 @@ def walk_chain(conn: sqlite3.Connection, stop_at_first: bool = True) -> dict:
     (healing one row's hash breaks the next row's `prev_hash` link), so the missing piece was never
     a repair -- it was a report. The two acts a report can name (an attestation sealing what is
     beyond repair, and a truncation withdrawing a rewritten tail) are the Chair's to authorize, and
-    neither is written yet; this walker deliberately names no command that does not exist, because
-    a message pointing at an unwritten command is the remediation class the ledger already carries.
+    both are written now, in `holon/integrity/audit.py`. This docstring said "neither is written yet"
+    when the walker shipped, and that sentence was false by 2026-10-31 — a reader trusting it would
+    have concluded the report led nowhere and re-derived the acts by hand. Corrected in place, as
+    the plan's own root-cause row was: a stale claim about one's own mechanism is the defect, not a
+    detail.
 
     The distinction that makes the report useful, measured rather than assumed: a chain with ONE
     break whose remaining rows each verify is a single edited or removed event, while a run of
     `re-linked` rows is a tail that was rewritten. Those need different acts, so the walker
     separates them instead of returning a count.
+
+    The two acts this walker's report leads to are **written**, in `holon/integrity/audit.py`:
+    `attest` (the honest act for a chain that cannot be healed) and `truncate` (the destructive
+    half, for a tail worth discarding). Both are the Chair's, and this docstring used to say they
+    were still unwritten — a claim that was already false when it was made and that the next
+    reader would have acted on, so it is corrected here rather than quietly left. Neither heals a
+    chain, and neither claims to: healing one row's hash breaks the next row's `prev_hash`, which
+    the 2026-10-24 row proved by measurement.
 
     And a break's `prev_hash` names the row it claims to follow, so the rows *between* that row
     and this one are the rows the chain stepped over. Measured 2026-10-31 against the live

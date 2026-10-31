@@ -507,7 +507,7 @@ the session's fourth and fifth of that class, and it is why the mutation is not 
 | 6 | **G1b** — chown the adapter home so the harness opens its db | **done, today (the Chair's root shell)** | Chair | a dispatched run's `status` is not `failed` |
 | 7 | **G2.1** — `holon audit walk` reports every break | **done, today, by this session; the row's earlier "concurrent session" note was corrected in place 2026-10-31** | A | a two-break chain, both named |
 | 7b | **the run's environment carries a PATH** | **done, today, `2d891ef`** | A | `test_the_push_run_carries_a_path_and_an_invocable_kernel_command` |
-| 8 | **G2.2/3** — attest, then truncate | **open — the Chair's hand on a destructive command** | Chair | `--force`, and the named backup |
+| 8 | **G2.2/3** — attest, then truncate | **done, `3a8b2ec`** — see the §3 subsection above | Chair runs them | the attestation is an event on entity `audit`; the truncation refuses without `--force` and refuses `--through` at the first break |
 | 9 | **`schedule.nowake`** — the one new error this session created | **open, and the Chair's product call** | Chair | see below |
 
 Phase 5 is done and its cost was measured rather than estimated: the drift the ledger row

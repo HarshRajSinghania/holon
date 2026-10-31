@@ -240,7 +240,7 @@ class Migrations(unittest.TestCase):
 
         env = dict(os.environ, PYTHONPATH=str(REPO))
 
-        # Two edits, far apart
+        # Two independent edits, far apart
         home, k = instance()
         for i in range(1, 10):
             db_mod.log_event(k.wconn, "task", f"t{i}", None, None, "chair", f"note {i}")
@@ -259,6 +259,8 @@ class Migrations(unittest.TestCase):
         self.assertNotIn("a single event was edited", p.stdout,
                          "two edits must not be reported as one")
         self.assertIn("last event that verifies", p.stdout)
+        self.assertIn("0 skipped event(s)", p.stdout,
+                      f"an edit skips nothing, and the header says so: {p.stdout}")
 
         # One edit only: the opposite reading, on the same walker
         home2, k2 = instance()
@@ -271,6 +273,59 @@ class Migrations(unittest.TestCase):
         self.assertIn("a single event was edited", p2.stdout,
                       f"one edit reads as one: {p2.stdout}")
         self.assertIn("1 break", p2.stdout, f"and reports one break: {p2.stdout}")
+
+    def test_the_walk_names_the_rows_a_fork_abandoned(self):
+        """G2.1's own second draft, measured on the live instance 2026-10-31.
+
+        The walk named the break and not what it stepped over. On the live chain a `re-linked`
+        row whose predecessor was five rows back was reported as "1 separate events were edited
+        or removed", so an operator was told one event moved when **three had been abandoned and
+        nothing extended them** — and the attestation the Chair signs names that second number.
+
+        The guard plants a real fork: two rows claim the same predecessor, and the row after the
+        gap links back before it. It asserts the skipped rows are named, with their own seq,
+        entity and note, in the command's printed output.
+
+        Mutation-verified 2026-10-31 by dropping the `skipped` key from the walker's break record:
+        the guard fails naming the skipped seqs.
+        """
+        import subprocess
+        from holon.core import db as db_mod
+        from holon.core.paths import Home
+        from holon.execution.service import Kernel
+
+        root = Path(tempfile.mkdtemp(prefix="holon-fork-"))
+        home = Home(root / "home")
+        home.root.mkdir(parents=True)
+        home.config_file.write_text("[pipeline]\nresearch = \"never\"\n")
+        k = Kernel(home)
+        for i in range(1, 7):
+            db_mod.log_event(k.wconn, "task", f"t{i}", None, None, "chair", f"note {i}")
+
+        # A fork: the LAST row re-links to row 1, so nothing after it exists to be broken
+        # by its changed hash, and every row between is stepped over by nothing.
+        tip = k.wconn.execute("SELECT max(seq) FROM events").fetchone()[0]
+        r1 = k.wconn.execute("SELECT hash FROM events WHERE seq=1").fetchone()[0]
+        last = k.wconn.execute("SELECT * FROM events WHERE seq=?", (tip,)).fetchone()
+        fixed = db_mod.event_hash(r1, last["ts"], last["entity"], last["entity_id"],
+                                 last["from_status"], last["to_status"], last["actor"], last["note"])
+        k.wconn.execute("UPDATE events SET prev_hash=?, hash=? WHERE seq=?", (r1, fixed, tip))
+        k.wconn.commit()
+
+        w = db_mod.walk_chain(k.wconn, stop_at_first=False)
+        brk = [b for b in w["breaks"] if b["reason"] == "re-linked"]
+        self.assertEqual([b["seq"] for b in brk], [tip], f"the fork's re-link is named: {brk}")
+        self.assertEqual([s["seq"] for s in brk[0]["skipped"]], list(range(2, tip)),
+                         f"the rows it stepped over are named: {[s['seq'] for s in brk[0]['skipped']]}")
+        self.assertEqual(brk[0]["from_seq"], 1, "and the row it claims to follow")
+
+        env = dict(os.environ, PYTHONPATH=str(REPO))
+        p = subprocess.run([sys.executable, "-m", "holon", "--home", str(home.root), "audit", "walk"],
+                           capture_output=True, text=True, env=env, timeout=300)
+        self.assertIn("skipped seq 2", p.stdout, f"the printed report names what was skipped: {p.stdout}")
+        self.assertIn(f"skipped seq {tip - 1}", p.stdout, f"…and the last one: {p.stdout}")
+        self.assertIn(f"{tip - 2} skipped event(s)", p.stdout,
+                      f"the header count is the number an operator attests to: {p.stdout}")
 
     def test_doctor_run_never_rebinds_the_connection_it_reads_through(self):
         """G2's own second draft broke doctor, and the break was one name.

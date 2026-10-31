@@ -215,15 +215,24 @@ def walk_chain(conn: sqlite3.Connection, stop_at_first: bool = True) -> dict:
     `re-linked` rows is a tail that was rewritten. Those need different acts, so the walker
     separates them instead of returning a count.
 
+    And a break's `prev_hash` names the row it claims to follow, so the rows *between* that row
+    and this one are the rows the chain stepped over. Measured 2026-10-31 against the live
+    instance: the walk said "1 separate events were edited or removed" for a `re-linked` row whose
+    predecessor was five rows back, which hid that **three events had been skipped and nothing
+    extended them**. "One row moved" and "a fork abandoned three events" are different facts and
+    the attestation the Chair signs names the second one, so the walker reports it as
+    `skipped` rather than leaving an operator to count the gap by hand.
+
     `stop_at_first` exists because doctor keeps its one-error-per-check behaviour by calling with
     it, and the same walker serves `holon audit walk`, which does not. One implementation, two
     callers: two walkers would drift the moment one learned something the other did not.
     """
+    rows = list(conn.execute("SELECT * FROM events WHERE hash IS NOT NULL ORDER BY seq"))
     breaks: list[dict] = []
     checked = 0
     prev = ""
     last_ok_seq: int | None = None
-    for e in conn.execute("SELECT * FROM events WHERE hash IS NOT NULL ORDER BY seq"):
+    for e in rows:
         expected = event_hash(e["prev_hash"] or "", e["ts"], e["entity"], e["entity_id"],
                               e["from_status"], e["to_status"], e["actor"], e["note"])
         if e["hash"] != expected:
@@ -234,12 +243,22 @@ def walk_chain(conn: sqlite3.Connection, stop_at_first: bool = True) -> dict:
         else:
             kind = None
         if kind:
+            # The rows this one stepped over: the chain's own declared predecessor is `prev_hash`,
+            # and everything between it and this row was not extended by anything that follows.
+            skipped: list[dict] = []
+            won = None
+            if kind == "re-linked":
+                won = next((r for r in rows if r["hash"] == e["prev_hash"]), None)
+                if won and won["seq"] < e["seq"] - 1:
+                    skipped = [dict(r, note=(r["note"] or "")[:200]) for r in rows
+                               if won["seq"] < r["seq"] < e["seq"]]
             breaks.append({"seq": e["seq"], "reason": kind,
                            "entity": e["entity"], "entity_id": e["entity_id"],
                            "ts": e["ts"], "actor": e["actor"],
                            "note": (e["note"] or "")[:200],
                            # the row this one claims to follow, when the trail holds it
-                           "prev_hash": e["prev_hash"]})
+                           "prev_hash": e["prev_hash"], "skipped": skipped,
+                           "from_seq": won["seq"] if kind == "re-linked" and won else None})
         else:
             last_ok_seq = e["seq"]
         # `prev` advances along what the ROWS say, not along what verifies: `prev_hash` is the

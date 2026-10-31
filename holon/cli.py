@@ -1677,9 +1677,19 @@ def cmd_audit_walk(args, k):
     for b in w["breaks"]:
         lines.append(f"seq {b['seq']:<8} {b['reason']:<10} {b['entity']}:{b['entity_id']}  "
                      f"{b['ts']}  by {b['actor']}" + (f"  — {b['note']}" if b["note"] else ""))
+        # G2.1's own second draft: the walk named the break and not what it stepped over. Measured
+        # 2026-10-31 on the live instance, the report said "1 separate events were edited or
+        # removed" for a `re-linked` row whose predecessor was five rows back — so the operator
+        # was told one event moved when three had been abandoned and nothing extended them. The
+        # attestation names the second number, so it is printed.
+        for s in b["skipped"]:
+            lines.append(f"  ↳ skipped seq {s['seq']:<5} {s['entity']}:{s['entity_id']}  "
+                         f"{s['ts']}  by {s['actor']}"
+                         + (f"  — {s['note']}" if s["note"] else "  — (no note)"))
     if not lines:
         text = f"the chain holds: {w['checked']} events verified, no break"
     else:
+        stepped = sum(len(b["skipped"]) for b in w["breaks"])
         # The shape is read from the rows, never from the count: two edits far apart are two
         # edits, and an operator reading "a single event was edited" beside two named seqs would
         # conclude one of them did not happen.
@@ -1689,9 +1699,13 @@ def cmd_audit_walk(args, k):
         elif w["one_edited_row"]:
             shape = "a single event was edited, and every event after it still verifies"
         else:
-            shape = (f"{w['break_count']} separate events were edited or removed, and the rows "
-                     "between and after them still verify")
-        text = (f"{w['break_count']} break(s) in {w['checked']} events: {shape}\n"
+            # The count an operator acts on includes what the chain stepped over: a fork that
+            # abandoned three events is not "one separate event was edited or removed".
+            shape = ("the rows between and after each break still verify; a skipped row is one "
+                     "nothing extends" if stepped else
+                     "the rows between and after the breaks still verify")
+        text = (f"{w['checked']} events, {w['break_count']} break(s), {stepped} skipped "
+                f"event(s): {shape}\n"
                 + "\n".join(lines)
                 + f"\nlast event that verifies: {w['last_ok_seq']}")
     _out(args, w, text)

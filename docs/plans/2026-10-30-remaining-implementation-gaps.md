@@ -172,6 +172,14 @@ keeps that from happening now. Measured from the live database read-only:
 | 1812 → 1813 → 1814 | **3 rows, then it stops** | abandoned: nothing links from 1814 |
 | 1815 → … → 3487 | **1,673 rows, and it is the head** | live: every event since extends it |
 
+**Done 2026-10-31, and the instrument's own first draft was caught by that measurement.**
+`holon audit walk` names the skip now: `3487 events, 1 break(s), 3 skipped event(s)` with each
+skipped row printed under its break. The first draft reported `1 separate events were edited or
+removed`, because a break's `prev_hash` names the row it claims to follow and the walk did not
+print what lay between — so an operator was told one event moved where a fork had orphaned three.
+A count that is low is the same defect class as a remediation that names a command that refuses,
+and the number the attestation signs is the second one.
+
 So the honest act is to **attest the fork and record the abandoned three-row tail**, which is what
 §3's command 2 is for; a truncation here would be the wrong act, because the live trail is the one
 being extended. This is *not* a corruption and *not* a deleted row, and the "inserted out of order"

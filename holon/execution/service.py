@@ -298,6 +298,12 @@ class Kernel:
         self._build_cache: dict[str, str | None] = {}   # driver → harness build (H10), one probe per process
         self.skills = Library(home)
         self.schedules = Schedules(self.wconn, actor, self.home)
+        # The audit trail's two acts. `holon audit walk` reads through `db.walk_chain` and this
+        # capability carries the two writes a break calls for (G2.2/G2.3). Registered even in
+        # read-only mode, and the read-only refusal lives in the capability's writer: a probe
+        # asking for the method gets the kernel's refusal rather than an AttributeError.
+        from holon.integrity.audit import Audit
+        self.audit = Audit(self.wconn, actor, home, readonly=readonly)
         if not readonly:
             self.org.bootstrap()
         self.auth = security.Auth(self.wconn, home)

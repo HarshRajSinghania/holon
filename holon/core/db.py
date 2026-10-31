@@ -197,6 +197,23 @@ def event_hash(prev_hash: str, ts: str, entity: str, entity_id: str, frm: str | 
     return hashlib.sha256("\x1f".join(fields).encode()).hexdigest()
 
 
+def _break_of(entity_id: str | None) -> int | None:
+    """The break an attestation names, from its `chain:<seq>` entity_id, or None.
+
+    `holon audit attest` records its accept as an event on entity `audit` keyed by the break's own
+    seq, so the attestation is a trail row a walk can find rather than a side table that would be a
+    second writer of the same fact. An `audit` row whose entity_id is not a chain reference (a
+    refusal, a withdrawal, or an unrelated audit event) is not an attestation of a break and is
+    skipped here, so the count an operator reads is only what was actually signed."""
+    s = (entity_id or "").strip()
+    if not s.startswith("chain:"):
+        return None
+    try:
+        return int(s[6:])
+    except ValueError:
+        return None
+
+
 def walk_chain(conn: sqlite3.Connection, stop_at_first: bool = True) -> dict:
     """Walk the audit trail's hash chain and report every break, not just the first.
 
@@ -226,9 +243,31 @@ def walk_chain(conn: sqlite3.Connection, stop_at_first: bool = True) -> dict:
     `stop_at_first` exists because doctor keeps its one-error-per-check behaviour by calling with
     it, and the same walker serves `holon audit walk`, which does not. One implementation, two
     callers: two walkers would drift the moment one learned something the other did not.
+
+    And a break's `prev_hash` names the row it claims to follow, so the rows *between* that row
+    and this one are the rows the chain stepped over. Measured 2026-10-31 against the live
+    instance: the walk said "1 separate events were edited or removed" for a `re-linked` row whose
+    predecessor was five rows back, which hid that **three events had been skipped and nothing
+    extended them**. "One row moved" and "a fork abandoned three events" are different facts and
+    the attestation the Chair signs names the second one, so the walker reports it as
+    `skipped` rather than leaving an operator to count the gap by hand.
+
+    The walker also reports the **attestations** already in the trail, because an attestation does
+    not heal a break and must not read as if it did: the Chair who has seen event N's break and
+    accepted the rows after it is a fact the next reader needs, in the same walk that still
+    reports the break. Reading one without the other is how an operator concludes either that
+    nobody ever looked, or that looking was the fix.
     """
     rows = list(conn.execute("SELECT * FROM events WHERE hash IS NOT NULL ORDER BY seq"))
     breaks: list[dict] = []
+    # What the Chair has already signed, so a reader of this walk sees the break AND its
+    # attestation in one place. An attestation is an event on entity 'audit' whose entity_id names
+    # the break it accepts (`chain:<seq>`), and it is read from the trail rather than from a
+    # column, because a column would be a second writer.
+    attestations: list[dict] = [
+        {"seq": a["seq"], "break_seq": _break_of(a["entity_id"]), "ts": a["ts"],
+         "actor": a["actor"], "note": (a["note"] or "")[:200]}
+        for a in rows if a["entity"] == "audit" and _break_of(a["entity_id"]) is not None]
     checked = 0
     prev = ""
     last_ok_seq: int | None = None
@@ -278,6 +317,7 @@ def walk_chain(conn: sqlite3.Connection, stop_at_first: bool = True) -> dict:
     kinds = [b["reason"] for b in breaks]
     tail_rewritten = len(breaks) > 1 and all(k == "re-linked" for k in kinds)
     return {"checked": checked, "breaks": breaks, "last_ok_seq": last_ok_seq,
+            "attestations": attestations, "attested_seqs": [a["break_seq"] for a in attestations],
             "tail_rewritten": tail_rewritten,
             "one_edited_row": len(breaks) == 1 and kinds[0] == "edited",
             "first_break_seq": breaks[0]["seq"] if breaks else None,

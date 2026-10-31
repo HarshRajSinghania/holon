@@ -1686,6 +1686,13 @@ def cmd_audit_walk(args, k):
             lines.append(f"  ↳ skipped seq {s['seq']:<5} {s['entity']}:{s['entity_id']}  "
                          f"{s['ts']}  by {s['actor']}"
                          + (f"  — {s['note']}" if s["note"] else "  — (no note)"))
+    for a in w["attestations"]:
+        # An attestation does NOT heal the break, and it must not read as if it did. The Chair who
+        # accepted the rows after the break is printed after the breaks, so the next reader sees
+        # both facts in one walk: the chain is still broken, and a person took responsibility.
+        lines.append(f"attested   seq {a['seq']:<8} by {a['actor']}  {a['ts']}  "
+                     f"— the Chair accepted the break at seq {a['break_seq']}"
+                     + (f": {a['note'][:120]}" if a["note"] else ""))
     if not lines:
         text = f"the chain holds: {w['checked']} events verified, no break"
     else:
@@ -1709,6 +1716,41 @@ def cmd_audit_walk(args, k):
                 + "\n".join(lines)
                 + f"\nlast event that verifies: {w['last_ok_seq']}")
     _out(args, w, text)
+
+
+@command("audit attest", "chair", "sign, with the Chair key, that the chain's break at seq N has "
+         "been seen and the rows that follow are accepted (G2): the honest act for a chain that "
+         "cannot be healed, recorded as a hash-chained event so it cannot be denied later",
+         arg("--note", help="the Chair's own words, carried on the attestation event"))
+def cmd_audit_attest(args, k):
+    # `holon audit walk` names every break and what it stepped over; the number that is signed is
+    # the one it reports, read here inside the capability rather than passed in — a count a caller
+    # supplies is a count that can contradict the rows (G2.1's own defect, one write deeper).
+    res = k.audit.attest(note=args.note)
+    text = (f"attested the break at event {res['break_seq']} ({res['reason']}) as event "
+            f"{res['seq']}, under the Chair key")
+    if res["skipped_count"]:
+        text += (f"; {res['skipped_count']} event(s) were skipped and are recorded as abandoned: "
+                 + ", ".join(str(s["seq"]) for s in res["skipped"]))
+    text += ("\nthe chain is not healed — it is attested: every event after the break still "
+             "verifies, and `holon audit walk` will keep reporting the break, now beside this "
+             "attestation")
+    _out(args, res, text)
+
+
+@command("audit truncate", "chair", "withdraw the events past a break the Chair cannot accept "
+         "(the destructive half of G2): refuses without --force, and the refusal is written into "
+         "the trail before it is honoured",
+         arg("--through", type=int, metavar="SEQ",
+             help="the last event to keep (default: the first break's own seq)"),
+         arg("--force", action="store_true",
+             help="required: the events past the break are deleted from the live chain"),
+         arg("--note", help="the Chair's own words, carried on the withdrawal event"))
+def cmd_audit_truncate(args, k):
+    res = k.audit.truncate(through=args.through, note=args.note, force=args.force)
+    _out(args, res, f"withdrew {res['withdrawn']} event(s) past seq {res['through']}"
+                    f"\n{res['survive']}"
+                    f"\nthe withdrawal is event-{k.audit.last_seq()} on entity 'audit', by the Chair")
 
 
 @command("bylaws sync", "chair", "regenerate the units tables from $HOLON_HOME/bylaws/units/*.toml "
@@ -2128,7 +2170,17 @@ def main(argv: list[str] | None = None, broker: dict | None = None) -> int:
                   file=sys.stderr)
             return FORBIDDEN
         args.principal = principal
-        k.actor = k.work.actor = k.org.actor = k.schedules.work.actor = principal.actor
+        # The actor is patched onto the kernel's capabilities by walking them, not by naming them:
+        # the hand-list this replaced (`k.work.actor`, `k.org.actor`, `k.schedules.work.actor`) is
+        # the same defect family as the broker's `BROKER_EXTRA` — a capability added later is
+        # silently missed, and a missed actor is `anonymous` in the trail. Measured 2026-10-31:
+        # `holon audit attest` recorded its act under `anonymous` while its own output said
+        # "under the Chair key", and only the live run caught it. A capability with no `actor`
+        # attribute is left alone, so this walk is safe for the ones that never had one.
+        for cap in (k.work, k.org, k.schedules, k.audit, k.schedules.work):
+            if hasattr(cap, "actor"):
+                cap.actor = principal.actor
+        k.actor = principal.actor
         return cmd.fn(args, k) or 0
     except HomeNotSet as e:
         print(f"holon: {e}", file=sys.stderr)

@@ -597,6 +597,15 @@ def run(k) -> list[dict]:
         b = chain["breaks"][0]
         more = ("" if chain["break_count"] == 1 else
                 f" — and {chain['break_count'] - 1} more break(s) after it, named by `holon audit walk`")
+        # An attestation does not repair the chain, and the finding must not read as if one did.
+        # But an operator who has already signed `holon audit attest` must be told that the error
+        # they are reading is the one they accepted, rather than left to wonder whether their act
+        # landed: the remedy that changes nothing is the 2026-10-26 advice class.
+        attested = [a for a in chain["attestations"] if a["break_seq"] == b["seq"]]
+        if attested:
+            more += ("; the Chair attested this break on "
+                     + ", ".join(f"event {a['seq']}" for a in attested)
+                     + " — the chain is not healed, and the rows after the break are accepted")
         add("error", "audit.chain", f"event {b['seq']} breaks the hash chain ({b['reason']}: edited, "
                                      f"deleted, or inserted){more}")
 

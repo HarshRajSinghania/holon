@@ -67,8 +67,10 @@ is not in this file fails `holon lint` — so this file can never drift from the
 | `holon verify` `--note` <task_id> <verdict> | chair | verify a result yourself |
 | `holon dispatch` `--as` `--stage` `--task` `--schedule` `--prepare` `--runs-as-agent-user` | kernel | claim a stage for an employee and run its harness driver |
 | `holon post-execute` <work_id> | kernel | run a handed-in result's machine checks and rubric judge (the heartbeat spawns this) |
+| `holon audit attest` `--note` | chair | sign, with the Chair key, that the chain's break at seq N has been seen and the rows that follow are accepted (G2): the honest act for a chain that cannot be healed, recorded as a hash-chained event so it cannot be denied later |
 | `holon audit judge` `--note` <ref> <verdict> | chair | re-judge a sampled approval |
 | `holon audit samples` `--all` | any | employee approvals sampled for the Chair to re-judge |
+| `holon audit truncate` `--through` `--force` `--note` | chair | withdraw the events past a break the Chair cannot accept (the destructive half of G2): refuses without --force, and the refusal is written into the trail before it is honoured |
 | `holon audit walk` | any | walk the audit trail's hash chain and report EVERY break, not just the first: which event, why it fails, and whether the tail was rewritten (G2) |
 
 ## a system (department)

@@ -240,14 +240,70 @@ Three commands, in the order they earn their keep:
    that cannot be healed row-by-row: the ledger's own 2026-10-24 row proved that healing one row's
    hash breaks the next row's `prev_hash`, so the repair is a **recorded fact**, not a rewrite — and
    an operator who quarantines a break has attested to it, with the attestation itself a
-   hash-chained event, so it cannot be denied later.
+   hash-chained event, so it cannot be denied later. **Done 2026-10-31** (`holon/integrity/audit.py`):
+   the act is an event on entity `audit` keyed `chain:<break-seq>`, written through `log_event` —
+   the chain's one writer — so it is itself un-deniable. It **heals nothing**: `holon audit walk`
+   still reports the break and `holon doctor` still errors, now naming the event the Chair signed so
+   the finding is not crying wolf to an operator who already answered it. The number the attestation
+   names is the walker's own `skipped` count, never a count the caller passes in — the defect
+   G2.1's live run found, one write deeper.
 3. **`holon audit truncate --through <seq>`** (actor `chair`, with `--force`): the destructive
    half, for a break whose tail is worthless. Refuse without `--force`, name the count, and write
-   the refusal into the trail before it is honoured.
+   the refusal into the trail before it is honoured. **Done 2026-10-31.** Three things the live
+   run caught that reading the code would not have: the acting principal was **`anonymous`** on the
+   first run (the CLI patched its actor onto three capabilities by hand, and the new one was not
+   among them — the `BROKER_EXTRA` defect family, an audit event saying `anonymous` while its own
+   output said "under the Chair key"); `--through` was accepted at the break's own seq, which on
+   the live instance is the **live head**, so the one command that would have destroyed 1,673
+   working events parsed; and the refusal is now written before it is raised, asserted by its seq
+   rather than by "a refusal row exists" — the first version of that guard passed while the write
+   came after the raise.
 
 Row 3 is where this could go wrong: a truncate that takes the work with it. Guard it on the side
 that matters — the tail's rows stay readable in the backup the heartbeat takes hourly, and the
-command names that backup in its own output.
+command names that backup in its own output. **Shipped with the third guard: `--through` at or past
+the first break is refused by name** ("a truncate withdraws the rows a break made untrustworthy,
+not the break itself"), because on the live instance that seq is the head of the branch that is
+still being extended. **Done 2026-10-31.**
+
+---
+
+### G2.2 and G2.3, and the two defects the live run found in them
+
+Neither command existed: `audit attest` and `audit truncate` were written this session into
+`holon/integrity/audit.py` and registered as `k.audit` on the Kernel. Both were then run on a real
+instance — `holon init`, a seeded chain, a real fork, the Chair's own key — and that run is what
+caught three things reading the code would not have.
+
+**1. The acting principal was `anonymous`.** The CLI's dispatch patched its actor onto three
+capabilities by hand — `k.actor = k.work.actor = k.org.actor = k.schedules.work.actor =
+principal.actor` — and the capability added this session was not one of them. So
+`holon audit attest` wrote an audit event reading `actor=anonymous` while its own printed output
+said "under the Chair key". Two statements disagreed and only one of them was evidence. The shape
+is the ledger's own 2026-10-24 `BROKER_EXTRA` row: **a hand-maintained list of things that must
+all receive the same value fails silently for anything added after it.** The patch walks the
+capabilities now, and the guard reads the dispatch's own source — a reintroduced chained
+assignment fails it, and removing the new capability from the walk fails it. Mutation-verified
+from both sides.
+
+**2. `--through` was accepted at the break's own seq.** On the live instance the break at 1815 is
+the head of the branch that is *still being extended* — the fact the plan's own root-cause
+correction established. So the value the first draft accepted is the one command that would have
+destroyed 1,673 working events. It is refused by name now, and the guard asserts the refusal's
+wording rather than its exception type, because the wording is what the operator reads.
+
+**3. The refusal guard passed while the write came after the raise.** The first version asserted
+"a refusal row exists in the trail", which is true whether the row was written before the exception
+or after — and the ordering was the entire point of the row. It asserts the row's **seq** now (the
+last event, which the caller cannot know before the raise), and the mutation that swaps the two
+statements fails it. That is the third null-guard family in this ledger's own audits (2026-10-23's
+guard that measured the wrong seam, 2026-10-24's tautology), and it is the cheapest to write: an
+assertion of presence standing in for an assertion of order.
+
+One honesty note recorded rather than buried: my first comment on the attestation's "accepts the N
+events that follow" count claimed that number was uncheckable, then the code computed exactly the
+checkable value. The comment was wrong about the code it sits above; it is corrected in place to
+state what the number is and where a reader re-derives it.
 
 ---
 

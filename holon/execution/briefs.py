@@ -55,7 +55,21 @@ def holon_command(home: Home) -> str:
 def kernel_env(home: Home) -> dict[str, str]:
     pkg_parent = str(Path(__file__).resolve().parents[2])
     pythonpath = os.pathsep.join(p for p in (pkg_parent, os.environ.get("PYTHONPATH", "")) if p)
-    return {"HOLON_HOME": str(home.root), "PYTHONPATH": pythonpath, "HOLON": holon_command(home)}
+    # The contract (docs/CONTRACT.md §1) promises the body "the kernel command to run from any
+    # shell (also `holon` on PATH)", and `HOLON` alone is only half of that: `HOLON` is one
+    # command string, while a body shells out to `cat`, `grep`, `which` and the harness's own
+    # launcher by bare name. Measured live 2026-10-30, after the adapter home was chowned and
+    # the harness booted: the body read its brief in full, produced a complete envelope, and
+    # could not hand it in — `PATH` was empty, so nothing its brief named resolved. The
+    # 2026-10-26 ledger row fixed this exact name for `Kernel._exec`'s isolated branch
+    # (`_check_env` merges a safe base), and that guard passed while the seam a real dispatch
+    # takes — `drivers.run`, which builds its environment from `run_env` + `driver_env` — still
+    # had no base. One rule, two spawn paths, only one covered.
+    # No credentials: the kernel's own `HOLON_CHAIR_KEY`/`HOLON_KEY` never reach a harness (the
+    # run() isolated branch drops them explicitly, and the non-isolated one drops them here).
+    safe_path = os.environ.get("PATH") or "/usr/local/bin:/usr/bin:/bin"
+    return {"HOLON_HOME": str(home.root), "PYTHONPATH": pythonpath, "HOLON": holon_command(home),
+            "PATH": safe_path}
 
 
 def build(home: Home, run: dict, node: dict, context_md: str, library: Library | None = None,

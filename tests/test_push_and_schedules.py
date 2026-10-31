@@ -31,6 +31,34 @@ class PushMode(KernelCase):
         run = self.k.wconn.execute("SELECT id FROM runs WHERE kind='verify'").fetchone()[0]
         self.assertIn("[exit] 0", (self.home.run_dir(run) / "driver.log").read_text())
 
+    def test_the_push_run_carries_a_path_and_an_invocable_kernel_command(self):
+        """Measured live 2026-10-30, after the adapter home was chowned to the agent user and the
+        harness finally booted: the body read its brief in full and handed in a complete result
+        envelope, and then could not submit it, because the run's environment carried no `PATH`
+        and no invocable `holon`. The kernel's own contract (docs/CONTRACT.md §1) says the
+        environment gives the body "the kernel command to run from any shell (also `holon` on
+        PATH)" — and `kernel_env` sets `HOLON`, `HOLON_HOME` and `PYTHONPATH` but never a PATH,
+        so every push-mode run silently loses the command its own brief tells it to use.
+
+        The 2026-10-26 ledger row fixed exactly this for `Kernel._exec` (`_check_env` merges a
+        safe base) and its guard passed here, because that guard exercises one spawn path while a
+        real dispatch goes through `drivers.run()`, which builds its environment from
+        `run_env` + `driver_env` and merges no base at all. One rule, two spawn paths, only one
+        covered: the guard asserted the seam it was written beside, not the seam that ships.
+
+        Asserted over `run_env`'s own output, which is the dict `drivers.run` hands the harness."""
+        from holon.execution import drivers
+        env = drivers.run_env(self.home, {"stage": "research", "run_id": "run_x",
+                                          "task_id": "tsk_x", "brief_md": "x/BRIEF.md",
+                                          "result_path": "x/result.json"}, None)
+        path = env.get("PATH") or ""
+        self.assertTrue(path, "run_env must carry a PATH; an empty one strands every harness")
+        self.assertTrue(any(p in path for p in ("/bin", "/usr/bin")),
+                        f"PATH must include the system binaries a body shells out to: {path!r}")
+        holon = env.get("HOLON") or ""
+        self.assertIn("holon", holon,
+                      f"HOLON must name the kernel command the contract promises: {holon!r}")
+
     def test_dispatch_without_a_stage_takes_whatever_the_roles_allow(self):
         self.add(dept="eng")
         out = self.k.dispatch(self.hod)

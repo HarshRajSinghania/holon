@@ -26,11 +26,32 @@ STAGE_STATUSES = ("ready", "claimed", "done", "failed", "cancelled")
 TERMINAL = ("done", "failed", "cancelled")
 SOURCES = ("chair", "agent", "audit", "schedule", "kernel", "intake")
 RISKS = ("low", "normal", "high", "irreversible")
-GRADE_NAMES = {0: "routine", 1: "minor", 2: "significant", 3: "major", 4: "critical"}
+GRADE_NAMES = {0: "plain", 1: "minor", 2: "significant", 3: "major", 4: "critical"}
 PRIORITIES = (0, 1, 2, 3, 4)
 # how a piece of work is run, cheapest first: the kernel runs an approved command (script); one agent
-# session plans and acts on routine work (fast); the full pipeline of separate stages (full)
+# session plans and acts on plain (G0) work (fast); the full pipeline of separate stages (full)
 LANES = ("script", "fast", "full")
+
+# ── an operation's steps ───────────────────────────────────────────────────
+# An operation is one unit of work that repeats: a job the organization runs on a clock or on a
+# trigger. Its steps are the vocabulary that makes it more than "agent or script", because a
+# revenue operation is mostly cheap decisions with one expensive part.
+#
+# Measured on the live instance, 2026-10-31: an agent run spends ~173K input tokens, and the
+# importable revenue operations declare 37.4 agent fires a day (~13M tokens/day) against 5
+# script-only routines that cost nothing. A `branch_one` is the construct that closes that gap:
+# run the free script first, and wake a body only on the days the script came back empty.
+#
+# The loop kinds (for_loop, while_loop) are ABSENT ON PURPOSE, and the guard
+# `tests/test_operations.py` holds them out. A loop is a second way to repeat work beside two the
+# organization already has and polices: the task DAG (`task_needs`: a node is ready only when
+# everything it needs is done) and a schedule (`0 6 * * *`). It is also the one step kind with no
+# ceiling, and the ceiling is where the cost lives. They wait for a measurement from a real run --
+# specifically, an operation that must walk a variable-length list and proves slower or noisier as
+# N stages than as one looping step.
+STEP_KINDS = ("script", "shell", "branch_one", "branch_all", "sleep", "call")
+STEP_KINDS_DOC = "the loop kinds (for_loop, while_loop) are absent on purpose: a loop repeats work, " \
+                 "the DAG and a schedule already do, and a step with no ceiling is the one that spends"
 
 # The verbs that reach people outside the organization: the kernel names them so it can decide
 # outside-reach from a job's own words, without asking a decision model that may be off, rate-limited

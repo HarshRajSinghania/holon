@@ -26,6 +26,44 @@ def verified_in_class(conn: sqlite3.Connection, task_class: str | None) -> int:
         "WHERE o.kind='execute' AND o.verified=1 AND t.task_class=?", (task_class,)).fetchone()[0]
 
 
+def _complexity_floor(env: dict, floor: int, bump) -> int:
+    """The operation's own shape, as an objective grade signal.
+
+    The floor already read risk, reach, artifacts and class novelty -- everything about what the
+    work touches. It read nothing about what the work COSTS, so a seven-step operation that wakes
+    six bodies a day and a one-line script graded identically. That is the signal this adds, and
+    it is the one the Chair's objective (lead generation on a token budget) makes load-bearing.
+
+    Measured on the live instance 2026-10-31: one agent run spends ~173K input tokens; the
+    importable revenue operations declare 37.4 agent fires a day. An operation's cost is not a
+    detail of its execution, it is a fact about its risk.
+
+    Three rules, cheapest first, so the script lane is untouched:
+      * a step that wakes a body raises the floor -- a decision the kernel cannot make for free
+      * many steps raise the floor -- the graph a body must get right, not one call
+      * a single script step raises nothing -- the lane the organization runs unattended
+    """
+    if env.get("steps") and isinstance(env.get("steps"), (list, tuple)):
+        steps = [s for s in env["steps"] if isinstance(s, dict)]
+    else:
+        return floor
+    if not steps:
+        return floor
+    agents = sum(1 for s in steps if str(s.get("kind") or "") == "agent")
+    branches = sum(1 for s in steps if str(s.get("kind") or "").startswith("branch"))
+    if branches and agents:
+        bump(3, f"an operation that can escalate from {branches} branch(es) to {agents} agent "
+                f"step(s) must be checked, not trusted: floor G3")
+        return 3
+    if agents:
+        bump(2, f"{agents} agent step(s) wake a body (measured ~173K input tokens a run): floor G2")
+        return 2
+    if len(steps) >= 5:
+        bump(2, f"a {len(steps)}-step operation is a graph, not one call: floor G2")
+        return 2
+    return floor
+
+
 def grade_plan(conn: sqlite3.Connection, task: dict, env: dict, cfg: dict | None = None,
                  reach: list[str] | None = None, read_only_reach: list[str] | None = None) -> dict:
     """`reach`: the department's writable scope roots ([scope] in holon.toml). Writes there count as
@@ -96,6 +134,7 @@ def grade_plan(conn: sqlite3.Connection, task: dict, env: dict, cfg: dict | None
         r = conn.execute("SELECT slug FROM departments WHERE id=?", (task["dept_id"],)).fetchone()
         if r and r["slug"] in pilot:
             bump(4, f"pilot department '{r['slug']}': outside-reach (G3) is the Chair's call (G4)")
+    floor = _complexity_floor(env, floor, bump)
     proposed = parse_grade(env.get("grade"))
     effective = max(floor, proposed if proposed is not None else int(cfg["default_proposed"]))
     if proposed is not None and proposed < floor:

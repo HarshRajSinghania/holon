@@ -187,21 +187,26 @@ first honest act is to truncate or to attest.
 
 Three commands, in the order they earn their keep:
 
-1. **`holon events walk`** (actor `any`): report every break, not the first — how many, where they
+1. **`holon audit walk`** (actor `any`): report every break, not the first — how many, where they
    start, and whether the rows after the last break are internally consistent (a single tampered
    row looks different from a truncated tail). Gate: a test plants a two-break chain and asserts
    both are named. The existing guard's `break` is the mutation: removing it fails this.
-   **The verb is `events`, not `audit`** — `holon audit` is already the registry's approval-sampling
-   command (`{samples, judge}`, measured live), so naming a new trail command under it would either
-   collide or silently extend an unrelated surface. The registry already carries `holon events`
-   (the hash-chained trail's reader), which is the family this belongs to.
-2. **`holon events attest`** (actor `chair`): sign, with the Chair key, that the operator has seen
+   **The verb is `audit`, not `events`.** A concurrent session implemented this row during this
+   plan's audit, and it landed under `audit` beside the registry's existing `audit samples`/`audit
+   judge` — which this plan's own earlier draft asserted was a collision. It was wrong: the family
+   is the approval-rejudging verb, and the trail walk belongs beside it, not under the reader
+   `holon events` that lists rows. Measured against the live instance's own chain, the shipped
+   command reports exactly what the independent measurement above predicted:
+   `1 break(s) in 3435 events: 1 separate events were edited or removed, and the rows between and
+   after them still verify`, naming seq 1815 as **re-linked** — which is the shape this row
+   measured, and a second instrument confirming it.
+2. **`holon audit attest`** (actor `chair`): sign, with the Chair key, that the operator has seen
    the chain's break at seq N and accepts the rows that follow. This is the honest act for a chain
    that cannot be healed row-by-row: the ledger's own 2026-10-24 row proved that healing one row's
    hash breaks the next row's `prev_hash`, so the repair is a **recorded fact**, not a rewrite — and
    an operator who quarantines a break has attested to it, with the attestation itself a
    hash-chained event, so it cannot be denied later.
-3. **`holon events truncate --through <seq>`** (actor `chair`, with `--force`): the destructive
+3. **`holon audit truncate --through <seq>`** (actor `chair`, with `--force`): the destructive
    half, for a break whose tail is worthless. Refuse without `--force`, name the count, and write
    the refusal into the trail before it is honoured.
 
@@ -408,8 +413,9 @@ the session's fourth and fifth of that class, and it is why the mutation is not 
 | 3 | **G5** — the backup gate names both escapes | **done** | A | `test_no_remediation_names_a_command_whose_gate_would_refuse_it` |
 | 4 | **§7** — five register rows corrected in place | **done, `1340371`** | A | lint `register` 0/0 |
 | 5 | **G1a** — repair the drifted applied reach | **done, today** | A | `isolation.reach` 3 → **0**, and the harness boots |
-| 6 | **G1b** — chown the adapter home so the harness opens its db | **open — needs the Chair's root shell** | Chair | a dispatched run's `status` is not `failed` |
-| 7 | **G2.1** — `holon events walk` reports every break | **open, mine** | A | a two-break chain, both named |
+| 6 | **G1b** — chown the adapter home so the harness opens its db | **done, today (the Chair's root shell)** | Chair | a dispatched run's `status` is not `failed` |
+| 7 | **G2.1** — `holon audit walk` reports every break | **done, today, by a concurrent session** | A | a two-break chain, both named |
+| 7b | **the run's environment carries a PATH** | **done, today, `2d891ef`** | A | `test_the_push_run_carries_a_path_and_an_invocable_kernel_command` |
 | 8 | **G2.2/3** — attest, then truncate | **open — the Chair's hand on a destructive command** | Chair | `--force`, and the named backup |
 | 9 | **`schedule.nowake`** — the one new error this session created | **open, and the Chair's product call** | Chair | see below |
 

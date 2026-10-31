@@ -150,13 +150,32 @@ recomputing the whole chain over all 3,426 events:
 | broken back-links | **1** (1815's `prev_hash` ≠ 1814's `hash`) |
 | broken row hashes | **0** — every row's own hash is correct |
 | breaks after 1815 | **none** — the chain is intact from 1815 onward |
-| 1815's `prev_hash` | `3013726189…` — which is exactly **event 1812's hash** |
+| 1815's `prev_hash` | `3013726189…` — which is exactly **event 1811's hash** |
 | 1815's own hash | `33abc0c1…` — valid, and 1816 links to it correctly |
 
-So the shape is precise: **events 1813 and 1814 were written after the fact, out of order.** 1815
-still links back to 1812, and everything after 1815 links forward correctly from 1815. This is the
-"inserted" case the check's own message names, and it is **two rows that arrived in the wrong
-position**, not a corruption and not a deleted row.
+> **Corrected in place 2026-10-31, after the command this row shipped named the shape.** The
+> table and the paragraph below carried "1815's `prev_hash` is exactly **event 1812's hash**", and
+> it was wrong by one hop: 1812's hash is `e58222803bd680e0…`. The field holds `3013726189ab07bb…`,
+> which is **event 1811's**. The conclusion drawn from it does not survive the correction, so it is
+> replaced here with what the rows actually say. The rest of the table — one broken back-link, zero
+> broken row hashes, no break after 1815 — was re-measured over **3,487** events (the instance has
+> kept working since this plan's 3,426) and holds.
+
+So the shape is precise, and it is a **fork**, not an insertion: **seq 1812 and seq 1815 both claim
+seq 1811 as their predecessor**, in the same second (2026-10-27T23:31:52). Two writers read the
+same chain head — the ledger's own 2026-10-28 concurrency row, observed here rather than re-derived:
+`3013726189ab07bb…` is a `prev_hash` that **two** rows claim, and the kernel's `log_event` is what
+keeps that from happening now. Measured from the live database read-only:
+
+| branch | depth | state |
+|---|---|---|
+| 1812 → 1813 → 1814 | **3 rows, then it stops** | abandoned: nothing links from 1814 |
+| 1815 → … → 3487 | **1,673 rows, and it is the head** | live: every event since extends it |
+
+So the honest act is to **attest the fork and record the abandoned three-row tail**, which is what
+§3's command 2 is for; a truncation here would be the wrong act, because the live trail is the one
+being extended. This is *not* a corruption and *not* a deleted row, and the "inserted out of order"
+reading this plan first published would have sent the Chair to repair a trail that was working.
 
 That changes the cost of this row from the plan's original estimate ("a mechanism to walk it") to
 **one row re-linked, or one new event re-attesting from the true tip**. Both are the Chair's hand on
@@ -164,9 +183,14 @@ an audit trail: re-linking edits history, and re-attesting appends the fact that
 The plan's §8 row for this stands, but its cost is now one command rather than three.
 
 What is still missing and still mine: **no command reports how far the chain walks.** `doctor`
-breaks at the first break and says nothing about the remaining 1,611 events, so an operator cannot
+breaks at the first break and says nothing about the remaining 1,672 events, so an operator cannot
 tell "one row is out of order" from "everything after 1815 is gone" — and on a live instance with
-3,426 events that is the difference between a five-minute repair and a rebuild.
+3,487 events that is the difference between a five-minute repair and a rebuild. **Done 2026-10-31**
+(`d4520c8`): `holon audit walk` reports every break and, on the live chain, says exactly this —
+`1 break(s) in 3487 events: 1 separate events were edited or removed, and the rows between and
+after them still verify`, naming seq 1815 as **`re-linked`** with its predecessor's hash. The
+earlier text here called that "a concurrent session"; it was this session, and the row is
+corrected rather than quietly rewritten.
 
 ---
 
@@ -175,10 +199,11 @@ is broken and cannot say anything more:
 
 Measured: `doctor` walks the hash chain, finds the first break at seq 1815, and **stops** —
 `add("error", "audit.chain", …)` then `break`. There is no command that reports *how far* the
-chain breaks, no command that repairs a tampered row, and no command that distinguishes a
-tampered row from an inserted one. The ledger's own 2026-10-24 row is the closest: it proved a
-tampered fixture's chain **cannot** be healed row-by-row, because healing one row's hash breaks
-the next row's `prev_hash` link — measured, not argued.
+chain breaks, and no command repairs a tampered row. The ledger's own 2026-10-24 row is the
+closest: it proved a tampered fixture's chain **cannot** be healed row-by-row, because healing one
+row's hash breaks the next row's `prev_hash` link — measured, not argued. **The one claim here that
+did not survive measurement is "no command distinguishes a tampered row from an inserted one":
+`holon audit walk` now does, by kind (`edited` vs `re-linked`) as well as by count.**
 
 So the defect is not "the chain is broken". It is that **the kernel can prove the chain is broken
 and cannot say anything more.** An operator holding "event 1815" must re-derive by hand whether
@@ -191,15 +216,17 @@ Three commands, in the order they earn their keep:
    start, and whether the rows after the last break are internally consistent (a single tampered
    row looks different from a truncated tail). Gate: a test plants a two-break chain and asserts
    both are named. The existing guard's `break` is the mutation: removing it fails this.
-   **The verb is `audit`, not `events`.** A concurrent session implemented this row during this
-   plan's audit, and it landed under `audit` beside the registry's existing `audit samples`/`audit
-   judge` — which this plan's own earlier draft asserted was a collision. It was wrong: the family
-   is the approval-rejudging verb, and the trail walk belongs beside it, not under the reader
-   `holon events` that lists rows. Measured against the live instance's own chain, the shipped
-   command reports exactly what the independent measurement above predicted:
-   `1 break(s) in 3435 events: 1 separate events were edited or removed, and the rows between and
-   after them still verify`, naming seq 1815 as **re-linked** — which is the shape this row
-   measured, and a second instrument confirming it.
+   **The verb is `audit`, not `events`.** This row shipped it under `audit`, beside the
+   registry's existing `audit samples`/`audit judge` — which this plan's own earlier draft asserted
+   was a collision. It was wrong: the family is the approval-rejudging verb, and the trail walk
+   belongs beside it, not under the reader `holon events` that lists rows. Measured against the live
+   instance's own chain, read-only, on 3,487 events:
+   `1 break(s) in 3487 events: 1 separate events were edited or removed, and the rows between and
+   after them still verify`, naming seq 1815 as **`re-linked`** with `prev_hash 3013726189…` — which
+   the root-cause correction above shows is **1811's hash, claimed by two rows**, so the command and
+   the hand measurement now agree on a shape the plan's first draft had wrong. The counts here grew
+   from this plan's 3,435 because the instance kept working; re-measure rather than trust a number
+   that ages.
 2. **`holon audit attest`** (actor `chair`): sign, with the Chair key, that the operator has seen
    the chain's break at seq N and accepts the rows that follow. This is the honest act for a chain
    that cannot be healed row-by-row: the ledger's own 2026-10-24 row proved that healing one row's

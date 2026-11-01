@@ -19,6 +19,7 @@ import shutil
 from importlib import resources
 from pathlib import Path
 from string import Template
+from typing import Callable
 
 from holon.core.paths import Home
 from holon.core.vocab import SKILL_KINDS as KINDS
@@ -211,14 +212,48 @@ class Library:
                         problems.append(f"{where}: {f} links to missing {link}")
         return problems
 
-    def export(self, dest: Path, variables: dict, names: list[str] | None = None, dept: str | None = None) -> list[Path]:
-        """Materialize resolved, rendered skills for a harness that loads skills from disk."""
+    def export(self, dest: Path, variables: dict, names: list[str] | None = None, dept: str | None = None,
+              writer: "Callable[[Path, str], None] | None" = None) -> list[Path]:
+        """Materialize resolved, rendered skills for a harness that loads skills from disk.
+
+        `writer(path, body)` writes one rendered file. The default is a plain `write_text`, which
+        is right for a destination the kernel user owns (a run dir, a scratch instance's export).
+        A harness's adapter home is the exception: the trust boundary grants it as a WRITE root
+        for the agent user, so `isolation apply` gives the agent `rwX` over the WHOLE tree --
+        including the skills subdir the kernel re-exports into. Measured live 2026-11-01: the
+        live harness's adapter home held 57 agent-owned skill files, the re-export refused with
+        `Errno 13 Permission denied`, and the harness was served skills that were stale from
+        then on: one defunct skill looks exactly like no change at all. When the export's own
+        files are the agent's, the kernel cannot write them (a chown makes the tree the agent's,
+        and POSIX then denies the kernel on the directory too), so the write routes THROUGH the
+        boundary's runner as the agent user. `Kernel.export_skills` supplies that writer.
+        """
+        if writer is None:
+            def writer(p: Path, body: str) -> None:  # plain write, for a kernel-owned destination
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(body)
+            def ensure_parent(p: Path) -> None:
+                p.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            def ensure_parent(p: Path) -> None:
+                try:
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                except PermissionError:
+                    pass  # the directory already exists and is not ours: the writer's job
         out = []
         for name in names or self.names(dept):
             m = self.meta(name, dept)
             for f in ["SKILL.md"] + m["files"]:
                 p = dest / name / f
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(self.render(self.read(name, f, dept), variables))
+                ensure_parent(p)
+                body = self.render(self.read(name, f, dept), variables)
+                # replace, never open-in-place: a file the agent owns cannot be written by the
+                # kernel user, so an open that fails would lose the export silently (a stale
+                # skill). Unlink-and-create hands ownership to whoever the next writer is.
+                try:
+                    p.unlink()
+                except (FileNotFoundError, PermissionError):
+                    pass
+                writer(p, body)
             out.append(dest / name)
         return out

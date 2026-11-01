@@ -22,10 +22,16 @@ the planner's proposal can only raise the effective grade, never lower it.
 
 from __future__ import annotations
 
+import os
+import shutil
 import unittest
+from unittest import mock
 
 from tests.helpers import KernelCase
+from holon.cli import EXPORTED_HOLON
 from holon.execution import grading
+from holon.execution import isolation
+from holon.execution.service import Kernel
 
 
 class GradeRename(KernelCase):
@@ -311,6 +317,82 @@ def steps_omission_is_recorded() -> bool:
     from holon.core import vocab
     doc = (getattr(vocab, "STEP_KINDS_DOC", "") or "") + (getattr(vocab, "__doc__", "") or "")
     return "loop" in doc.lower()
+
+
+class ExportedSkillsSurviveTheBoundary(KernelCase):
+    """The skill export writes into a directory the trust boundary grants the agent.
+
+    Measured 2026-11-01 on the live instance, executing the outline-plan's G12:
+    `holon skill export --to $HOLON_HOME/adapters/operant/home/skills` refused with
+    `not allowed: [Errno 13] Permission denied`. The mechanism is not drift --
+    `reach()` grants `adapters/operant/home` as a WRITE root for the agent user by
+    design (the harness loads its skills from there), so `isolation apply` chowns that
+    tree to the agent. `Library.export` then calls `Path.write_text`, which creates the
+    file with the DIRECTORY's owner and a default mode. The kernel user is left owning a
+    tree it cannot rewrite: 57 paths under the agent user, and the export that keeps the
+    harness's skills current can never run again.
+
+    This is the ledger's shared-tree class (2026-10-25: an auto-committer tripped the
+    read-only guard) inverted: there the kernel's own writer was refused by the guard;
+    here the kernel's own writer is refused by the agent's ownership. The ledger row
+    covers the boundary's install side and nothing covers its export side.
+    """
+
+    def test_a_pre_export_that_cannot_write_exposes_the_export(self):
+        """The exposure test the writer routes on: a directory the kernel's uid cannot write
+        is one whose export must not attempt a plain `write_text` (which would be refused
+        with Errno 13 and leave the harness on stale skills). Measured live: the operant
+        adapter home is granted to the agent user as a write root, so `os.access(dir, W_OK)`
+        is False there while the same access is True in a kernel-owned tree."""
+        from holon.execution.service import _kernel_owns
+        mine = self.tmp / "mine"; mine.mkdir()
+        self.assertTrue(_kernel_owns(mine / "SKILL.md"), "a kernel-owned dir is writable")
+        # the boundary's own grant: deny this user on the directory, then ask again
+        os.chmod(mine, 0o555)  # no write for the owner ourselves
+        self.assertFalse(_kernel_owns(mine / "SKILL.md"),
+                         "a directory the kernel cannot write must be reported as such")
+        os.chmod(mine, 0o755)
+
+    def test_an_exposed_export_routes_the_write_through_the_runner(self):
+        """When the destination is not the kernel's, the write goes THROUGH the boundary's
+        runner as the agent user -- not through a `write_text` that would be refused. The
+        body crosses as an environment name, never inside the command string: the runner runs
+        `shell=True`, and a skill body is markdown carrying quotes and backticks."""
+        import shlex
+        sent = {}
+
+        def fake_run(address, cmd, cwd, env, timeout_s, **kw):
+            sent["cmd"] = cmd
+            sent["env"] = env
+            return (0, "", "")
+
+        dest = self.tmp / "agenthome" / "skills"   # not writable by this uid
+        dest.mkdir(parents=True)
+        os.chmod(dest, 0o555)
+        with mock.patch.object(isolation, "run", fake_run), \
+             mock.patch.object(Kernel, "isolation", new_callable=mock.PropertyMock,
+                               return_value={"runner": "@holon-runner-test", "agent_user": "agent"}):
+            self.k.export_skills(dest, {"holon": EXPORTED_HOLON}, ["holon-executor"])
+        self.assertTrue(sent.get("cmd"), "the runner was never used: the write went direct")
+        self.assertIn("HOLON_EXPORT_BODY", sent["cmd"],
+                      "the body must arrive as a name the runner sets, not as quoted text")
+        body = [v for k, v in sent["env"].items() if k == "HOLON_EXPORT_BODY"]
+        self.assertEqual(len(body), 1, "exactly one body crosses the boundary")
+        self.assertIn("# ", body[0], "the body that crossed is the rendered skill, not a stub")
+        self.assertNotIn("`", sent["cmd"],
+                         "the command carries no backtick: a skill body's quotes never reach a shell")
+        os.chmod(dest, 0o755)
+
+    def test_a_kernel_owned_export_writes_directly(self):
+        """The direct path stays direct: a destination the kernel owns is a `write_text`, and
+        routing it through the runner would need a live runner for every scratch export."""
+        import shlex
+        dest = self.tmp / "out"
+        with mock.patch.object(isolation, "run",
+                               side_effect=AssertionError("a kernel-owned dir routes to the runner")):
+            self.k.export_skills(dest, {"holon": EXPORTED_HOLON}, ["holon-executor"])
+        self.assertTrue((dest / "holon-executor" / "SKILL.md").is_file(),
+                        "the export landed its file")
 
 
 if __name__ == "__main__":

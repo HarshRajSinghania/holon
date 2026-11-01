@@ -138,6 +138,25 @@ CONFIG_KEYS["smoke"].add("dept")  # [smoke.dept.<slug>]
 CONFIG_KEYS["classes"] = set()   # [classes] org = [...], <dept slug> = [...]: checked by lint against departments
 
 
+def _kernel_owns(p: Path) -> bool:
+    """True when the kernel's own uid can create a file at `p`.
+
+    The test is POSIX's own rule, not a guess: creating or replacing a file needs write on the
+    DIRECTORY, so this asks the directory rather than the file (a read-only file in a writable
+    directory is still replaceable, which is exactly the unlink-and-create the export does).
+    `os.access` answers as the real uid, so a rule that granted another user access while
+    denying this one is reported honestly -- and the boundary's own grant of a harness home as
+    an agent write root is precisely that rule. Measured live 2026-11-01: `False` for the
+    live harness's adapter-home skills dir (owner the agent user), `True` for a kernel-owned tree.
+    """
+    d = p if p.is_dir() else p.parent
+    while not d.exists():  # the export may name a directory it is about to create
+        d = d.parent
+        if d.parent == d:
+            return False
+    return os.access(d, os.W_OK)
+
+
 def load_config(home: Home) -> dict:
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))
     if home.config_file.exists():
@@ -1111,12 +1130,47 @@ class Kernel:
     def export_skills(self, dest: Path, variables: dict, names: list[str] | None = None,
                       dept: str | None = None) -> list[Path]:
         """Export skills to a harness directory and remember it, so later skill changes reach it too."""
-        out = self.skills.export(dest, variables, names, dept)
+        out = self.skills.export(dest, variables, names, dept, writer=self._export_writer(dest))
         entry = {"dir": str(dest.resolve()), "names": names, "dept": dept, "variables": variables}
         regs = [r for r in self.skill_exports() if r["dir"] != entry["dir"]] + [entry]
         self._exports_file().parent.mkdir(parents=True, exist_ok=True)
         self._exports_file().write_text(json.dumps(regs, indent=2))
         return out
+
+    def _export_writer(self, dest: Path):
+        """The writer an export uses to land one rendered skill file.
+
+        A harness's adapter home is inside the trust boundary's WRITE reach for the agent
+        user, so the boundary hands the agent rwX over the whole tree -- the skills subtree
+        included. Measured live 2026-11-01: a live harness home held 57 agent-owned skill files
+        and the re-export refused with `Errno 13 Permission denied`, leaving the harness on
+        skills that were stale from then on (and a stale skill looks exactly like no change).
+        The export therefore detects its own exposure -- the file it is about to write, or its
+        directory, is not the kernel user's -- and routes the write THROUGH the runner as the
+        agent user, which is the one identity that can write there. `shutil.which`'s sibling
+        sweep is the same answer for the harness's own tree; here it is a file write.
+
+        The body crosses as an environment name, never inside the command string: the runner
+        runs `shell=True`, and a skill body is markdown with every quote and dollar it likes,
+        so quoting it into a command line would be the injection the boundary exists to stop
+        (and a body with a stray backtick would run as a command substitution).
+        """
+        env_name = "HOLON_EXPORT_BODY"
+
+        def writer(p: Path, body: str) -> None:
+            iso = self.isolation
+            if iso and not _kernel_owns(p):
+                from holon.execution import isolation
+                # the body crosses as a name, not as text in the command: the runner runs
+                # `shell=True`, so a body with a quote or a backtick would be parsed. One
+                # call per file keeps a failure attributable to the file that caused it.
+                cmd = ('umask 022 && mkdir -p ' + shlex.quote(str(p.parent)) +
+                       ' && printf %s "$HOLON_EXPORT_BODY" > ' + shlex.quote(str(p)))
+                isolation.run(iso["runner"], cmd, str(p.parent), {**self._check_env(), env_name: body}, 60)
+            else:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(body)
+        return writer
 
     def refresh_skill_exports(self) -> list[str]:
         done = []

@@ -805,6 +805,85 @@ class Setup(KernelCase):
                 return line.strip()
         return None
 
+    def effective_bits(self, path, user) -> str:
+        """What the agent user can ACTUALLY do at `path`: POSIX's own rule, entry AND mask.
+
+        A named ACL entry is a request; the `mask` line is what the kernel enforces, and the
+        effective permission is `entry & mask`. `getfacl` prints that arithmetic itself
+        (`#effective:---`), so this reads the printed verdict rather than re-deriving it -- a
+        hand-rolled computation is the shape that produced the 2026-10-26 hand-rolled ELF
+        parser's silent miss. Measured live 2026-11-01: the harness's own data directory
+        carried `user:<agent>:--x  #effective:---` -- an entry that exists and grants nothing.
+        """
+        effective = []
+        for line in self._acl_of(path).splitlines():
+            s = line.strip()
+            if not s.startswith(f"user:{user}:"):
+                continue
+            if "#effective:" in s:
+                effective.append(s.split("#effective:", 1)[1].strip())
+            else:
+                effective.append(s.split(":", 2)[2])
+        return "".join(effective)
+
+    def test_a_grant_the_mask_erased_is_reported_not_assumed(self):
+        """Measured live 2026-11-01. The harness's own long-running server hardens its data
+        directory with `chmod 700` (its own `perm_harden` routine, measured in its binary's
+        strings: "New credential files use mode 0600 within a 0700 Jcode data directory"),
+        and POSIX applies a `chmod` to the ACL **mask** -- so every traversal grant the
+        boundary wrote is erased, the entry surviving with `#effective:---`. The probe (running
+        as the agent user) then reports the harness binary unreadable, `doctor` reports
+        `isolation.reach`, and the derivation is CORRECT: applying the plan again would grant
+        the very `x` the chmod removed.
+
+        This is the applied-vs-derived drift class the 2026-10-30 row records, one level
+        below where that guard looks: it plants and reads a **denial**, and has no concept of
+        a **mask**, so a grant that survived as an inert entry is invisible to it. Both reads
+        are needed -- an entry reading `---` and an entry reading `x` with mask `---` are the
+        same exposure, and only the second looks healthy to a denial check.
+
+        The guard plants the live state on a directory it owns, asserts the effective bits
+        are empty, then repairs it and asserts the repair is visible -- which is what
+        `isolation apply --force` does (measured: it re-issues `setfacl -m u:<agent>:x`)."""
+        import subprocess
+        import shutil
+        me = getpass.getuser()
+        self.home.config_file.write_text(self.pipeline + f'\n[isolation]\nagent_user = "{me}"\n')
+        self.k.close()
+        self.k = Kernel(self.home)
+        probe = self.k.home.root / "mask-probe"
+        if probe.exists():
+            shutil.rmtree(probe, ignore_errors=True)
+        probe.mkdir(parents=True)
+        self.addCleanup(lambda: shutil.rmtree(probe, ignore_errors=True))
+        # the grant the boundary writes, exactly as the plan does
+        subprocess.run(["setfacl", "-m", f"u:{me}:x", str(probe)],
+                       capture_output=True, text=True, timeout=20)
+        self.assertEqual(self.effective_bits(probe, me), "--x",
+                         "the planted grant must be effective, or this guard measures nothing")
+        # the harness's own `chmod 700`: the entry survives, the mask erases it
+        os.chmod(probe, 0o700)
+        erased = self.effective_bits(probe, me)
+        self.assertFalse(erased.endswith("x"),
+                         "after the chmod the grant must be inert -- this is the live state, "
+                         "and if it is not, this guard measures a healthy tree instead of the "
+                         "defect (the null test: it would pass with the repair deleted)")
+        # The SAME state, read by the older denial guard: `find_one_denial_on` matches a
+        # line ending in `:---`, and the mask-erased entry ends in `#effective:---`, so it
+        # reports a DENIAL on a path the plan granted. That is a false positive in the blind
+        # spot, not a correctness -- and it is why this read exists beside it rather than
+        # inside it: the two answer different questions ("is it denied?" and "is it
+        # EFFECTIVE?"), and only one of them can see the mask.
+        self.assertIsNotNone(self.find_one_denial_on(probe, me),
+                             "the denial read must see this state (it matches the effective "
+                             "suffix), which is the false positive this row records")
+        # the repair, and the proof it landed: `apply --force` re-issues the plan's own grant
+        subprocess.run(["setfacl", "-m", f"u:{me}:x", str(probe)],
+                       capture_output=True, text=True, timeout=20)
+        self.assertEqual(self.effective_bits(probe, me), "--x",
+                         "re-applying the grant must restore it -- otherwise the operator's "
+                         "documented step (`isolation apply --force`) cannot close this")
+
     def test_a_symlinked_harness_target_is_traversable(self):
         """Measured live 2026-10-26: `which jcode` is ~/.local/bin/jcode, a symlink into
         ~/.jcode/builds/current/jcode. The plan resolved the chain before granting, so the

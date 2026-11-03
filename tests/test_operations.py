@@ -159,6 +159,36 @@ class StepVocabulary(KernelCase):
             {"kind": "branch_one", "command": "x"}]})
         self.assertEqual(good, [], "a step kind the vocabulary carries must validate")
 
+    def test_the_contract_carries_one_definition_of_every_rule_it_calls(self):
+        """A duplicate definition is a silent regression, and it happened for real.
+
+        Measured 2026-11-03 while validating G7 live: `holon/core/contract.py` carried
+        `_step_problems` **twice**. Python binds the second, so the first was dead text, and the
+        one that survived had lost the capability the suite's own guard asserted (an edge named
+        by string id). A green suite missed it entirely, because nothing reads the source for a
+        rule declared twice -- every guard exercised `validate()`, and `validate()` was fine.
+
+        The same session that found it had caused it: cleaning up a duplicated helper it had
+        written itself, it removed the wrong copy and the call site's only guard did not cover
+        what was lost. The lesson is the plan's own `findings` mechanism -- a second copy of a
+        rule is a second owner for it, and rule 1 says one owner per question.
+
+        The guard is an AST walk over the module, not a grep: a duplicate `def` at module scope
+        is the shape, and the walk names the function so the failure is actionable.
+        """
+        import ast
+        src = open(os.path.join(os.path.dirname(__file__), "..", "holon", "core",
+                                "contract.py")).read()
+        tree = ast.parse(src)
+        seen: dict[str, int] = {}
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                seen[node.name] = seen.get(node.name, 0) + 1
+        duplicates = sorted(n for n, c in seen.items() if c > 1)
+        self.assertEqual(duplicates, [],
+                         "a module-scope name is defined more than once; the later binding wins "
+                         f"and the earlier rule is dead text: {duplicates}")
+
     def test_a_steps_list_carries_the_shape_the_grade_reads(self):
         """`depends_on` is not decoration: it is the edge the DAG materializes (G7 3), and
         without a binding a step naming a step that does not exist is a graph that cannot run.

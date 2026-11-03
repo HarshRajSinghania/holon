@@ -903,6 +903,69 @@ PTR_BAD = re.compile(r"[<>{}*$…]|\.\.\.|NNNN|://|^[-~/]")
 FILE_EXT = r"\.(?:md|toml|json|jsonl|yaml|yml|py|sh|txt|csv|mqh|mq5|rs|ts|js|go)"
 
 
+_PI_KEY = re.compile(r"^\s*pointer_ignore\s*=\s*", re.M)
+
+_QSTR = re.compile(r'"([^"\n]*)"')
+
+_QSTR1 = re.compile(r"'([^'\n]*)'")
+
+
+def _reasoned_entries(raw: str, key: str = "pointer_ignore") -> set[str]:
+    """The entries of `key` that carry an inline reason, read from raw text.
+
+    The parser strips TOML comments, so a parsed `pointer_ignore` entry loses the reason that
+    was written beside it — and the suppression audit needs that reason: an entry a reviewer
+    can read is a dated decision (exempt), while an unexplained one is exactly what the audit
+    is for. The block is located by key so an unrelated section's commented string can never
+    exempt a suppression by coincidence, and the comment must sit INSIDE the entry's own
+    extent (after its value, before the next value) so a list-level note after the closing
+    bracket does not exempt whichever entry it happens to precede. A `#` before the key's value
+    (the key itself being commented out) is not a reason."""
+    m = _PI_KEY.search(raw)
+    if not m:
+        return set()
+    rest = raw[m.end():]
+    # The value's form, decided by what immediately follows the `=` — not by the first `[` in
+    # the rest of the file: a string form with a bracket in its trailing comment ("... [core]
+    # ...") would otherwise capture an unrelated array several hundred characters away.
+    # A list reads its inner text and stops at its own `]`; a string reads to the end of its line.
+    if rest.lstrip().startswith("["):
+        inner = re.match(r"\s*\[(.*?)\]", rest, re.S)
+        if not inner:
+            return set()          # an unclosed list: nothing can be reasoned from it
+        body = inner.group(1)
+    else:
+        body = rest.splitlines()[0]
+    # Tokens are double- or single-quoted strings only. A reason like "every pool's contract"
+    # contains an apostrophe, and an `'...'` alternative will happily pair it with the next
+    # apostrophe and emit a garbage token that sends the walk backwards. The offsets are
+    # explicit (`at`) for the same reason: `re.search` on a slice returns slice-relative
+    # positions, and re-feeding one as an index into the whole body walks in circles.
+    out: set[str] = set()
+    at = 0
+    while True:
+        tok = _QSTR.search(body, at) or _QSTR1.search(body, at)
+        if not tok:
+            break
+        after = body[tok.end():]
+        nxt = _QSTR.search(after) or _QSTR1.search(after)
+        tail = after[:nxt.start()] if nxt else after
+        if tok.group(1).strip() and "#" in tail:   # a comment before the next value is its reason
+            out.add(tok.group(1) if tok.group(1) is not None else tok.group(2))
+        at = tok.end()
+    return out
+
+
+def _is_reasoned(token: str, reasoned: set[str]) -> bool:
+    """Is this parsed `ign` token explained by a reasoned raw entry?
+
+    A list form holds one path per entry, so the token matches its entry exactly. A string
+    form (`pointer_ignore = "docs/brief.md docs/absent.md"  # reason`) holds several
+    space-separated paths in ONE entry whose reason covers every path in it — and the audit's
+    token, split from that single string, would match nothing and lose its exemption."""
+    return any(token == e or token in e.split() for e in reasoned)
+
+
 def pointers(text: str, ignore: set[str], prefixes: tuple[str, ...] = ()) -> list[tuple[int, str]]:
     """Backticked pointers per line: (line, path). A pointer is file-shaped
     (`dir/name.ext` or `name.ext`), or starts with one of `prefixes` (then any
@@ -1371,6 +1434,50 @@ def lint_core(cfg: Cfg) -> list[str]:
                 f"`genome migrate` writes `**/{p}`" for s, k, p in membership_problems(cfg.sec)]
     names = tracked(cfg)
     ign = cfg.ignore()
+    # A suppression with no expiry. `pointer_ignore` removes a token from the pointer checks
+    # below before they ever look at it (`pointers()` drops any token in `ignore`), which is
+    # what it is for: a doc naming a path this repo does not carry — a per-run brief in the
+    # instance home, an operator-only config, a file cited by bare name in its own row. But a
+    # suppression outlives its reason, and nothing ever said so. Measured 2026-10-27 during the
+    # two-repo consolidation: a pointer_ignore list carried names the repo itself also carried,
+    # and the failures it was excusing — archive files with no INDEX rows, an orphan STATUS
+    # page — were both invisible for two days and both real defects.
+    #
+    # What earns the finding is a suppression NOBODY CAN AUDIT. The parser strips TOML inline
+    # comments, so the entries the live genome repos carry — `cron-jobs/*.md,  # arch cron-sync
+    # owned` — parse as bare tokens and their reasons are invisible to every code path that
+    # reads the parsed value; the audit therefore reads the RAW file. An entry with an inline
+    # reason is a dated decision a reviewer can read, so it is exempt (this is the fourth
+    # entry in this distribution's false-positive ledger, and a rule that fires on reasoned
+    # entries teaches operators to disregard the pack). Globs are matched as globs, not as
+    # literal paths: `cron-jobs/*.md` names real files here, and path-checking it reported
+    # "whose file does not exist" for a suppression that suppresses fifteen.
+    raw_cfg = ""
+    for _name, _legacy in (("genome.toml", False), ("kb.toml", True)):
+        if (cfg.root / _name).is_file():
+            raw_cfg = (cfg.root / _name).read_text()
+            break
+    reasoned = _reasoned_entries(raw_cfg)
+    for token in sorted(ign):
+        if _is_reasoned(token, reasoned):
+            continue  # carries an inline reason: an auditable decision, not an unexplained suppression
+        rel = token.lstrip("./")
+        if "/" not in rel:
+            continue  # a bare name (BRIEF.md, INDEX.md): nothing on disk can be checked against it
+        if token.startswith(("$", "~")):
+            continue  # an instance path the distribution does not carry, by design
+        if list(cfg.root.glob(rel)) if any(c in rel for c in "*?[") else (cfg.root / rel).exists():
+            out.append(f"W00A core.pointer_ignore names `{token}`, which exists in this repo: "
+                       f"a suppression that suppresses nothing hides the check it excuses")
+        else:
+            base = re.split(r"[*?\[]", rel, maxsplit=1)[0].rstrip("/")
+            if any(c in rel for c in "*?[") and base and (cfg.root / base).is_dir():
+                out.append(f"W00B core.pointer_ignore names `{token}`, a glob whose directory "
+                           f"exists here but which matches no file: the reason may have been "
+                           f"'not in this repo'")
+            elif not any(c in rel for c in "*?[") and (cfg.root / rel).parent.is_dir():
+                out.append(f"W00B core.pointer_ignore names `{token}`, whose directory exists here "
+                           f"but whose file does not: the reason may have been 'not in this repo'")
     # agent contract pointers
     if cfg.has("agents"):
         text = read(cfg.path("agents"))
@@ -1504,7 +1611,15 @@ def lint_core(cfg: Cfg) -> list[str]:
             if is_tombstone(body):
                 continue
             h = next((ln for ln in body.splitlines() if ln.startswith("#")), "")
-            titles.append((f.name, set(re.findall(r"[a-z0-9]{4,}", h.lower()))))
+            # The dates are not part of the question. Two plans named `2026-10-24` and
+            # `2026-10-17` shared `2026` and the two words every gap record carries, scored
+            # exactly 0.50 against the threshold below, and the rule reported a duplication
+            # between a knowledge-base plan and a whole-distribution one -- a false positive
+            # on the document pair an operator is most likely to open. A year and a day
+            # tokenize into the question's vocabulary; they carry no question.
+            bare = re.sub(r"\b\d[\d-]*\d?\b", " ", h.lower())
+            titles.append((f.name, set(re.findall(r"[a-z]{4,}", bare))))
+
         for i in range(len(titles)):
             for j in range(i + 1, len(titles)):
                 a, b = titles[i][1], titles[j][1]
@@ -3874,16 +3989,6 @@ def _version_of(path: Path) -> str:
         return "none" if _is_kb(path) else "missing"
     m = re.search(r'^VERSION = "([^"]+)"', p.read_text(errors="replace"), re.M)
     return m.group(1) if m else "?"
-
-
-def _git_sha(path: Path) -> str:
-    """For skills roots: the checked-out commit, or '-' when the copy has no .git (rsync copies)."""
-    try:
-        r = subprocess.run(["git", "-C", str(path), "rev-parse", "--short", "HEAD"],
-                           capture_output=True, text=True, timeout=10)
-        return r.stdout.strip() if r.returncode == 0 else "-"
-    except (OSError, subprocess.TimeoutExpired):
-        return "-"
 
 
 def _uncommitted_cli(repo: Path) -> tuple[Path, str] | None:

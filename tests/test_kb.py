@@ -180,6 +180,41 @@ class GenomePin(unittest.TestCase):
         self.assertEqual(digest, kb.GENOME_SHA256,
                          f"the vendored CLI's checksum moved: update GENOME_SHA256 (now {digest})")
 
+    def test_a_re_vendor_has_not_wiped_the_local_rules(self):
+        """A re-vendor drops the rules upstream does not carry, and nothing says so.
+
+        Measured 2026-11-03: the vendored CLI was re-pinned three times inside three hours,
+        and each time the F1 rules (the W00A/W00B suppression audit and its helpers) and the
+        W006 date strip vanished with it. `holon lint` never opens `holon/vendor/`, so the
+        distribution's strict gate reported 0 errors and 0 warnings while 21 of 27 of this
+        module failed -- the gate everyone runs was blind and the gate nobody runs was red.
+
+        This guard closes that seam: the LOCAL rules must be present in the vendored copy, so
+        the next re-vendor is caught by one fast test instead of an eight-minute suite. The
+        repair is `scripts/genome_apply_f1.py`, whose --check mode reports this same state."""
+        src = kb.GENOME.read_text()
+        rules = {
+            "the W00A/W00B suppression audit": "W00A",
+            "the reasoned-entry helper": "def _reasoned_entries(",
+            "the reason predicate": "def _is_reasoned(",
+            "the W006 date strip": "The dates are not part of the question",
+        }
+        missing = sorted(name for name, marker in rules.items() if marker not in src)
+        self.assertEqual([], missing,
+                         f"a re-vendor dropped the rules this distribution adds locally: "
+                         f"{missing}. Re-apply them with "
+                         f"`python3 scripts/genome_apply_f1.py` (use --check to confirm first)")
+        # the audit must read the config's RAW text: the rebuilt Cfg carries no `cfg_file`
+        # attribute, so the call the 2026-10-28 build used would leave `raw_cfg` empty on
+        # every run -- exempting nothing and firing on every live repo, the exact
+        # false-positive class this rule exists to end.
+        self.assertIn("read_text(", src,
+                      "the suppression audit must read the config's raw text from disk: the "
+                      "parser strips inline comments, so parsed entries look unexplained and "
+                      "every live repo's reasoned suppression would fire")
+        self.assertNotIn("cfg.cfg_file", src,
+                         "the rebuilt Cfg carries no cfg_file: this call silently reads nothing")
+
     def test_a_stale_pointer_ignore_is_finding_w00a(self):
         """F1 (2026-10-27 gaps outline-plan): a `pointer_ignore` suppression whose path NOW
         EXISTS suppresses nothing but still hides the check it once excused.

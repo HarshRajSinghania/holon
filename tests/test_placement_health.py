@@ -190,6 +190,33 @@ class StrayRootDirectories(KernelCase):
         self.assertGreaterEqual(float(content), before, "the stamp carries this tick's time")
         self.assertTrue(stamp.exists() and stamp.parent == self.home.root / ".clock")
 
+    def test_a_stale_heartbeat_reaches_the_chair_without_a_tick(self):
+        """Measured 2026-11-03. The clock died once for 568 minutes and nothing surfaced it,
+        and the plan called that silence the gap rather than the dead clock. It is structural:
+        `heartbeat.stale` is a doctor **warning**, and `_doctor` turns only `severity == "error"`
+        into an incident (service.py:2751) -- while `triggers()` itself runs *inside* the tick
+        that stopped, so the one instrument that would have named the dead clock is the clock.
+
+        A warning nobody can see is the `schedule.nowake` defect one layer over: the check is
+        correct and cannot run when it is needed. Staleness is therefore an ERROR here, so any
+        surviving doctor run (the broker's own read path, a person, the dashboard) opens an
+        incident and reaches the Chair -- the surface is not required to be the tick.
+
+        Both halves are asserted, because a one-sided fix is the false-alarm defect: a healthy
+        clock stays silent. Mutation-verified by changing each half in turn."""
+        clock = self.home.root / ".clock"
+        clock.mkdir()
+        (clock / "last_tick").write_text(str(int(time.time() - 60 * 60)))
+        findings = [f for f in doctor.run(self.k) if f["check"] == "heartbeat.stale"]
+        self.assertTrue(findings, "a stale stamp must be reported")
+        self.assertEqual(findings[0]["severity"], "error",
+                         "heartbeat.stale is a warning, and only errors become incidents: a dead "
+                         "clock reaches nobody. Measured live: 568 minutes of silence")
+        # a healthy clock still says nothing -- the guard is an alarm, not a nag
+        (clock / "last_tick").write_text(str(int(time.time())))
+        self.assertEqual([f for f in doctor.run(self.k) if f["check"] == "heartbeat.stale"], [],
+                         "a fresh stamp must silence it")
+
 
 class GcKeepsPinnedArtifacts(KernelCase):
     def test_gc_keeps_a_run_dir_a_pinned_artifact_still_points_into(self):

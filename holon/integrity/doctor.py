@@ -580,13 +580,23 @@ def run(k) -> list[dict]:
         try:
             age_min = (time.time() - int(stamp.read_text().strip())) / 60
             if age_min > 6:
-                add("warning", "heartbeat.stale",
+                # An ERROR, not a warning, and the reason is measured: the one thing that
+                # would have surfaced a dead heartbeat was `triggers()`, which runs INSIDE the
+                # tick that stopped, and `_doctor` opens an incident only for `severity ==
+                # "error"` -- so the instrument that names a dead clock was the clock, and the
+                # 2026-10-31 live instance cost 568 minutes of silence before anyone looked.
+                # Escalating it means any path that runs doctor without the heartbeat (a
+                # person, the broker, the dashboard) reaches the Chair. A healthy clock is
+                # silent by the same read, so this is not an alarm.
+                add("error", "heartbeat.stale",
                     f"the heartbeat's last tick stamp (.clock/last_tick) is {int(age_min)} minutes old: the "
                     "clock (`holon tick` every 2 minutes — the systemd timer or the gateway's clock organ) has "
                     "stopped, so due operations never fire and expired leases never renew (restart it, and see the "
                     "tick's errors in the journal / the gateway's log)")
         except (ValueError, OSError):
-            add("warning", "heartbeat.stale",
+            # Same reasoning as the stale branch: an unreadable stamp is the heartbeat not
+            # proving it is alive, which is the same exposure and must reach the same surface.
+            add("error", "heartbeat.stale",
                 "the heartbeat's tick stamp (.clock/last_tick) is unreadable: it should hold one integer, "
                 "the unix seconds of the last successful tick")
 

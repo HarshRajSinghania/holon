@@ -43,6 +43,19 @@ observation window **cannot** decide this check. The cadence is two minutes and 
 is six, so a sub-cadence sample reads "unchanged" and reports death on a healthy clock. A
 sampling window shorter than the cadence it judges is not an instrument for that question.
 
+**G8 and G9 re-measured, 2026-11-03** (read-only, the live home, counted from the DB rather
+than from the table above):
+
+| Row | plan said | measured now | What it means |
+|---|---|---|---|
+| G8 | 7 active employees across 2 departments | **unchanged — and now a dependency, not a hire** | The blocker is not the hire. `schedule.nowake` reports 7 active employees with **no live wake schedule**, and the event trail names the actor: **both `wake` schedules were disabled by the Chair at 2026-10-30T18:48**, with no note. A hire into a clockless department spends the Chair's budget on a body nothing can fire. Arm the clock, then hire. |
+| G9 | 37 gates, all `lane=full`, "the Chair's approve/reject" | **39 gates across five departments; only 26 are G3 outside-reach** | The 13 that are not are `source='kernel'` incident and retro tasks. The kernel's `lane="full"` default is **not** the defect: an ungraded task cannot take the fast lane, because `_expand` consults `fast_refusal` and the fast lane is granted against a grade floor the kernel has computed — an incident is filed ungraded by construction, since its grade is what the cause-finding would determine. They are a dependency (a head for `executive`, or grade the intake), not a lane default to change. |
+
+Both rows were re-derived from the live DB, and G9's premise was wrong enough that a fix
+written against it had to be **reverted**: the guard written for that fix was a null test,
+because with no classifier configured the rule answers `full` and a defaulted filing produces
+the same row. The lesson is in the ledger; what stands here is the corrected count.
+
 ### The upgrade's own debt, measured before it is claimed as done
 
 The rename and the vocabulary landed. **The vocabulary has no reader.** Measured: `STEP_KINDS`

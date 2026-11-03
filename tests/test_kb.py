@@ -205,9 +205,17 @@ class GenomePin(unittest.TestCase):
         # the audit reads the raw file, and a reasoned suppression is a dated decision a reviewer
         # can read. Measured 2026-10-28: without this arm the rule fired on all four live genome
         # repos, every one of which carries reasons -- the fourth false-positive class in the ledger.
-        self.assertIn("cfg.cfg_file", block,
-                      "the audit must read the raw config file: the parser strips inline "
-                      "comments, so parsed entries look unexplained")
+        # the audit must read the config file from DISK, not through a parser that strips
+        # inline comments (which would make a reasoned suppression look unexplained). The
+        # accessor's NAME is not the property: this build's `Cfg` carries the root, not the
+        # config file, so an assertIn on the name the 2026-10-28 build used would have failed a
+        # correct rule and sent the next reader to restore a call that cannot resolve --
+        # measured 2026-11-03, re-grafting this rule into a rebuilt vendor whose Cfg had been
+        # rewritten. What the rule must not do is read the parsed value: assert the read.
+        self.assertIn("read_text(", block,
+                      "the audit must read the config's raw text from disk; the parser strips "
+                      "inline comments, so parsed entries look unexplained and every live "
+                      "repo's reasoned suppression would fire")
         self.assertIn("_reasoned_entries(raw_cfg", block)
         self.assertIn("_is_reasoned(token, reasoned)", block)
         # and the suppression list is consulted from lint_core, not only lint_ops: the

@@ -16,4 +16,5 @@ dist/
 # genome runtime state (locks, temp files, recon tokens, read marks)
 *.genome-lock
 *.genome-tmp
-.genome/
+.genome/*
+!.genome/overrides/

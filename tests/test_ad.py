@@ -125,3 +125,46 @@ class AdIndex(KernelCase):
         self.assertTrue(any(s.startswith("Precedent") for s in meta["sections"])
                         or any("Precedent" in d for d in meta["degraded"]),
                         "the precedent cut is either kept or named as a gap — never silently dropped")
+
+    def test_nothing_tracked_is_also_ignored(self):
+        """The contradiction the new `integrity` module found on its first run (E309, measured
+        2026-11-03): `.gitignore` carries `.genome/` while `.genome/overrides/RECORDS_TPL.md`
+        is deliberately tracked — commit `9d03553` forced it in five months after the ignore
+        rule, because `apply_overrides` reads it from the working tree to replace the
+        distribution's built-in `RECORDS_TPL` text at every `genome rec emit`. The file is
+        therefore load-bearing authored content, and either half of the fix is wrong on its
+        own: untracking it (`git rm --cached`, which is what E309 suggests) drops the
+        override for every fresh clone, and deleting the file silently changes every
+        generated `docs/RECORDS.md`.
+
+        So the exemption is narrowed to exactly the authored directory: `.genome/*` is
+        ignored, `!.genome/overrides/` is not. Both halves are asserted, because a rule that
+        exempted the whole tree would stop hiding `index.db`, the pre-upgrade snapshots and
+        the local patch, and a rule that kept matching the override would put the
+        contradiction straight back."""
+        import subprocess
+        repo = ad._dist()
+
+        def ignored(rel: str) -> bool:
+            return subprocess.run(["git", "check-ignore", "-q", rel], cwd=repo,
+                                  capture_output=True).returncode == 0
+
+        ignore = (repo / ".gitignore").read_text()
+        self.assertIn(".genome/*", ignore,
+                      "the runtime state must still be ignored by name")
+        self.assertIn("!.genome/overrides/", ignore,
+                      "the authored override must be exempt from the runtime ignore")
+        # every runtime file stays hidden: these are the ones the rule exists for
+        for name in ("index.db", "genome.pre-upgrade", "local-patch.diff",
+                     "genome.pre-upgrade-full"):
+            f = repo / ".genome" / name
+            if f.exists():
+                self.assertTrue(ignored(f".genome/{name}"),
+                                f"{name} is genome runtime state and must stay ignored")
+        # and nothing tracked is matched by the ignore rules
+        tracked = subprocess.run(["git", "ls-files"], cwd=repo, capture_output=True,
+                                 text=True, check=True).stdout.split()
+        self.assertTrue(tracked, "the repository tracks files")
+        matched = [p for p in tracked if ignored(p)]
+        self.assertEqual([], matched,
+                         "a tracked file is also ignored — either untrack it or narrow the rule")

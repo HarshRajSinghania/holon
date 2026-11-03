@@ -54,10 +54,15 @@ except ImportError:  # Windows: Guarded falls back to an exclusive-create lock f
 # ---------------------------------------------------------------- constants
 
 JSON_CMDS = {"ask", "lint", "doctor", "new", "show", "find", "graph", "place", "card", "impact"}  # commands with a --json form
-MODULES = ("core", "records", "research", "ops", "agents", "outline")
+MODULES = ("core", "records", "research", "ops", "agents", "outline", "integrity")
 PROFILES = {
-    "software": ["core", "records"],
-    "research": ["core", "records", "research", "ops"],
+    # `integrity` is in every profile but `team`: a project-grade repo should always be
+    # able to answer "does it still build", "are its required docs there" and "is its
+    # declared shape intact", and those questions are what the module asks. A team
+    # coordination repo has no build, so `init --profile team` leaves it out and the
+    # silence is honest — a repo with no `[app]` gets no app finding at all.
+    "software": ["core", "records", "integrity"],
+    "research": ["core", "records", "research", "ops", "integrity"],
     "team": ["core", "records", "agents"],
     "full": list(MODULES),
 }
@@ -109,15 +114,45 @@ MODULE_ROLES = {
     "ops": ["ownership_map"],
     "agents": ["feed", "workflows"],
     "outline": ["agents"],
+    # integrity owns NO role path: it validates `[app]`'s toolchain, `[docs]`'s required
+    # documents and the ops-declared dirs, all of which already live in another
+    # module's space. Scaffolding a dir for it would create an empty one, which E606
+    # then reports. An empty list is the honest entry, and `genome init` needs it.
+    "integrity": [],
 }
 APPEND_ONLY = ("ledger", "worklog", "feed", "prereg", "quarantine")
 TOMBSTONE = re.compile(r"<!--\s*kb: tombstone target=\"([^\"]+)\"")
+TOMBSTONE_HEAD = 8  # lines; a tombstone marker is a document header, not a sentence in it
+
+
+def is_tombstone(text: str) -> bool:
+    """True when this text IS a tombstone, not when it merely mentions one.
+
+    A tombstone is a root-level pointer the archive workflow leaves behind: a heading,
+    then the `<!-- kb: tombstone target="..." -->` marker, then where it went. That
+    marker is a header, so it lives in the first few lines.
+
+    Searching the whole body instead is a false-positive machine. Measured 2026-11-01
+    on the live estate: the kernel's own `scripts/test_genome.py` documents this rule
+    in a comment, so `TOMBSTONE.search(read(f))` matched it and `E005` fired on
+    `AGENTS.md` for pointing at a live, passing test file. Any document that explains
+    the mechanism is read as the mechanism. The duplicate-title pass has the same
+    shape: it tests `"kb: tombstone" in body`, which a prose mention satisfies.
+
+    Anchoring to the head closes all three at once, and it is the honest shape: a
+    marker buried at line 400 is not what `genome archive` writes.
+    """
+    for ln in text.splitlines()[:TOMBSTONE_HEAD]:
+        if TOMBSTONE.search(ln):
+            return True
+    return False
+
 ZONE_RE = re.compile(r"<!-- genome:zone (\S+) sha=([0-9a-f]+) -->\n(.*?)<!-- genome:end \1 -->", re.S)
 ERR = 2
 MIN_CHUNK = 5  # lines; `ask` hits narrower than this point at a lead line without its content
 HUB_NODE_CAP = 3000  # nodes; above this `graph hubs` ranks by degree and says betweenness was not computed
 _TMP_SEQ = itertools.count()  # makes each atomic_write temp name unique within this process too
-VERSION = "2026.10.27-13"
+VERSION = "2026.11.02-60"
 # every key genome reads: an unknown key is a typo that would silently switch a check off (E017)
 CONFIG_KEYS = {
     "genome": {"modules", "schema_version"},
@@ -132,7 +167,16 @@ CONFIG_KEYS = {
     "research": {"classes", "figure_pattern", "hyp_prefix", "hyp_statuses", "surfaces", "quarantine_surfaces"},
     "ops": {"bulk_allow", "bulk_globs", "code_globs", "code_roots", "jobs", "link_prefixes", "link_surfaces",
             "max_bytes", "owner_exempt", "owner_globs", "py_paths", "secrets", "root_files", "dir_suffixes",
-            "dir_requires", "stale_terms", "stale_exempt", "external_ok"},
+            "dir_requires", "dir_globs", "stale_terms", "stale_exempt", "external_ok",
+            "dir_name_patterns", "dir_name_exempt"},
+    # `app` is the language-agnostic application/system-integrity declaration. A repo
+    # writes what its toolchain IS (python, cargo, npm...) and genome runs the check
+    # that toolchain defines, instead of the operator hand-writing one shell string
+    # that no other command can inspect. Every key is optional: an undeclared toolchain
+    # is simply not checked, and the fingerprint is reported as info, never as an error.
+    "app": {"toolchain", "build", "test", "typecheck", "lint", "fmt", "doc", "install_script", "install_probe",
+            "entry", "requires", "provides", "manifest", "readme", "agents", "architecture"},
+    "docs": {"required", "sections", "max_lines", "require_toc"},
     "outline": {"zones"},
 }
 STALE_DOCS = ("*.md", "*.yaml", "*.yml", "*.toml", "*.txt", "*.rst")  # stale paths matter where people read
@@ -146,6 +190,7 @@ CONVENTIONAL_ROOT_DOCS = {
     "NOTICE.md", "SKILL.md",
 }
 SEVERITIES = ("Critical", "High", "Medium", "Low")
+SEVERITY = {"E": "error", "W": "warning", "I": "info"}  # only `E` fails a build; see cmd_lint
 STOP = set("the and for what where which how does did are was were this that with from into when who why "
            "should can its it's our your about have has not any all in is it of on or to we an as at by do if "
            "me my no so up us be he".split())
@@ -221,7 +266,6 @@ class Cfg:
 
     def __init__(self, root: Path, data: dict, legacy: bool):
         self.root, self.legacy = root, legacy
-        self.cfg_file: Path | None = None  # set by find_cfg: the file this config was parsed from
         g = data.get("genome", {})
         mods = g.get("modules", LEGACY_MODULES if legacy else PROFILES["software"])
         bad = set(mods) - set(MODULES)
@@ -232,7 +276,7 @@ class Cfg:
         self.declared = {k for k in raw if isinstance(raw[k], str)}
         self.zones_declared = "zones" in data.get("records", {})
         self.paths = {**DEFAULT_PATHS, **{k: v for k, v in raw.items() if isinstance(v, str)}}
-        self.sec = {s: dict(data.get(s, {})) for s in ("core", "records", "research", "ops", "card", "federation", "drift", "index")}
+        self.sec = {s: dict(data.get(s, {})) for s in ("core", "records", "research", "ops", "card", "federation", "drift", "index", "app", "docs")}
         self.schema_version = int(g.get("schema_version", 0))
         self.kinds = dict(data.get("kinds", {}))
         self.views = dict(data.get("views", {}))
@@ -302,67 +346,6 @@ def deep_merge(base: dict, more: dict) -> dict:
     return base
 
 
-_PI_KEY = re.compile(r"^\s*pointer_ignore\s*=\s*", re.M)
-_QSTR = re.compile(r'"([^"\n]*)"')
-_QSTR1 = re.compile(r"'([^'\n]*)'")
-
-
-def _reasoned_entries(raw: str, key: str = "pointer_ignore") -> set[str]:
-    """The entries of `key` that carry an inline reason, read from raw text.
-
-    The parser strips TOML comments, so a parsed `pointer_ignore` entry loses the reason that
-    was written beside it — and the suppression audit needs that reason: an entry a reviewer
-    can read is a dated decision (exempt), while an unexplained one is exactly what the audit
-    is for. The block is located by key so an unrelated section's commented string can never
-    exempt a suppression by coincidence, and the comment must sit INSIDE the entry's own
-    extent (after its value, before the next value) so a list-level note after the closing
-    bracket does not exempt whichever entry it happens to precede. A `#` before the key's value
-    (the key itself being commented out) is not a reason."""
-    m = _PI_KEY.search(raw)
-    if not m:
-        return set()
-    rest = raw[m.end():]
-    # The value's form, decided by what immediately follows the `=` — not by the first `[` in
-    # the rest of the file: a string form with a bracket in its trailing comment ("... [core]
-    # ...") would otherwise capture an unrelated array several hundred characters away.
-    # A list reads its inner text and stops at its own `]`; a string reads to the end of its line.
-    if rest.lstrip().startswith("["):
-        inner = re.match(r"\s*\[(.*?)\]", rest, re.S)
-        if not inner:
-            return set()          # an unclosed list: nothing can be reasoned from it
-        body = inner.group(1)
-    else:
-        body = rest.splitlines()[0]
-    # Tokens are double- or single-quoted strings only. A reason like "every pool's contract"
-    # contains an apostrophe, and an `'...'` alternative will happily pair it with the next
-    # apostrophe and emit a garbage token that sends the walk backwards. The offsets are
-    # explicit (`at`) for the same reason: `re.search` on a slice returns slice-relative
-    # positions, and re-feeding one as an index into the whole body walks in circles.
-    out: set[str] = set()
-    at = 0
-    while True:
-        tok = _QSTR.search(body, at) or _QSTR1.search(body, at)
-        if not tok:
-            break
-        after = body[tok.end():]
-        nxt = _QSTR.search(after) or _QSTR1.search(after)
-        tail = after[:nxt.start()] if nxt else after
-        if tok.group(1).strip() and "#" in tail:   # a comment before the next value is its reason
-            out.add(tok.group(1) if tok.group(1) is not None else tok.group(2))
-        at = tok.end()
-    return out
-
-
-def _is_reasoned(token: str, reasoned: set[str]) -> bool:
-    """Is this parsed `ign` token explained by a reasoned raw entry?
-
-    A list form holds one path per entry, so the token matches its entry exactly. A string
-    form (`pointer_ignore = "docs/brief.md docs/absent.md"  # reason`) holds several
-    space-separated paths in ONE entry whose reason covers every path in it — and the audit's
-    token, split from that single string, would match nothing and lose its exemption."""
-    return any(token == e or token in e.split() for e in reasoned)
-
-
 def find_cfg(start: Path | None = None) -> Cfg:
     p = (start or Path.cwd()).resolve()
     for cand in [p, *p.parents]:
@@ -383,12 +366,7 @@ def find_cfg(start: Path | None = None) -> Cfg:
                             deep_merge(layered[sec], more.get(sec, {}))
                     for sec in ("kinds", "views"):
                         data[sec] = deep_merge(layered[sec], data.get(sec, {}))
-                    cfg = Cfg(cand, data, legacy)
-                    # `Cfg` snapshots `data["kinds"]`/`["views"]` at construction, so it is built only
-                    # after the merge above; this remembers where it came from. The stale-suppression
-                    # audit reads raw text: the TOML parser strips the inline reason beside an entry.
-                    cfg.cfg_file = f
-                    return cfg
+                    return Cfg(cand, data, legacy)
                 except tomllib.TOMLDecodeError as e:
                     die(f"{f}: {e}")
     die("no genome.toml upward of cwd — run `genome init` at the project root")
@@ -646,7 +624,20 @@ def write_zone(path: Path, name: str, body: str) -> bool:
 
 
 def broken_zones(text: str) -> list[str]:
-    starts = re.findall(r"<!-- genome:zone (\S+) sha=", text)
+    """Zone starts that no `zones()` match closes.
+
+    A start marker inside a code fence is documentation, not a zone: `headings()`
+    already skips fences, and a manual that shows the marker format would otherwise
+    fail the lint it is describing (the case that produced this). The fenced example
+    in `references/core.md` names a zone that can never be written, so `zones()`
+    never finds it and the unguarded regex called it broken."""
+    lines = text.splitlines()
+    starts, fence = [], False
+    for ln in lines:
+        if ln.lstrip().startswith(("```", "~~~")):
+            fence = not fence
+        elif not fence:
+            starts += re.findall(r"<!-- genome:zone (\S+) sha=", ln)
     whole = {m.group(1) for m in ZONE_RE.finditer(text)}
     return sorted({n for n in starts if n not in whole or starts.count(n) > 1})
 
@@ -1349,7 +1340,30 @@ def cmd_ask(args) -> None:
 def lint_core(cfg: Cfg) -> list[str]:
     out: list[str] = [f"E017 genome.toml: unknown key {k} (a typo here switches a check off silently)"
                       for k in cfg.unknown]
+    # AN UNMIGRATED SCHEMA IS AN ERROR, NOT A WARNING. A repo at schema_version 1 with a
+    # CLI that knows schema 2 reads every membership glob with the WRONG dialect — it
+    # matches at any depth where the CLI meant a top-level file — so every check over
+    # those patterns is checking the wrong thing and reporting clean. Measured 2026-10-31
+    # on the live machine: a schema-1 KB linted with 0 errors and no schema finding at
+    # all, while `genome migrate` happily rewrote it. That is the silent-failure shape:
+    # the lint cannot see a repo it is reading wrong, so the gate has to be the version.
+    #
+    # A schema_version that is NOT DECLARED is a different fact and stays a
+    # `genome init`-shaped one: the key is absent, so nothing was migrated away from
+    # anything, and calling that "behind" would flag every repo written before the key
+    # existed. 0 means undeclared here, because that is what the config reader defaults
+    # to, and an undeclared schema is not the same defect as a declared old one.
+    if 0 < cfg.schema_version < SCHEMA_VERSION:
+        fname = "kb.toml" if cfg.legacy else "genome.toml"
+        out.append(f"E018 {fname} is schema_version {cfg.schema_version}; this CLI knows "
+                   f"{SCHEMA_VERSION} — `genome migrate` (an unmigrated repo reads every "
+                   f"membership glob with the old dialect, so its checks read the wrong patterns)")
     out += lint_layout(cfg)   # root placement is a core invariant, not an ops option
+    # A directory's NAME is a core invariant too: a collision is a defect with no config to
+    # declare it, so it runs everywhere. The tracked-but-ignored contradiction is likewise a fact
+    # about git, not an option, so it runs everywhere too.
+    out += lint_dir_names(cfg)
+    out += lint_tracked_but_ignored(cfg)
     out += [f"W507 [paths] {k} is retired (no role uses it); `genome migrate` removes it" for k in RETIRED_PATHS
             if k in cfg.declared]
     if cfg.schema_version < 2:  # the one-dialect change: say what `genome migrate` will rewrite
@@ -1357,53 +1371,13 @@ def lint_core(cfg: Cfg) -> list[str]:
                 f"`genome migrate` writes `**/{p}`" for s, k, p in membership_problems(cfg.sec)]
     names = tracked(cfg)
     ign = cfg.ignore()
-    # A suppression with no expiry. `pointer_ignore` removes a token from the pointer checks
-    # below before they ever look at it (`pointers()` drops any token in `ignore`), which is
-    # what it is for: a doc naming a path this repo does not carry — a per-run brief in the
-    # instance home, an operator-only config, a file cited by bare name in its own row. But a
-    # suppression outlives its reason, and nothing ever said so. Measured 2026-10-27 during the
-    # two-repo consolidation: a pointer_ignore list carried names the repo itself also carried,
-    # and the failures it was excusing — archive files with no INDEX rows, an orphan STATUS
-    # page — were both invisible for two days and both real defects.
-    #
-    # What earns the finding is a suppression NOBODY CAN AUDIT. The parser strips TOML inline
-    # comments, so the entries the live genome repos carry — `cron-jobs/*.md,  # arch cron-sync
-    # owned` — parse as bare tokens and their reasons are invisible to every code path that
-    # reads the parsed value; the audit therefore reads the RAW file. An entry with an inline
-    # reason is a dated decision a reviewer can read, so it is exempt (this is the fourth
-    # entry in this distribution's false-positive ledger, and a rule that fires on reasoned
-    # entries teaches operators to disregard the pack). Globs are matched as globs, not as
-    # literal paths: `cron-jobs/*.md` names real files here, and path-checking it reported
-    # "whose file does not exist" for a suppression that suppresses fifteen.
-    raw_cfg = cfg.cfg_file.read_text() if getattr(cfg, "cfg_file", None) else ""
-    reasoned = _reasoned_entries(raw_cfg)
-    for token in sorted(ign):
-        if _is_reasoned(token, reasoned):
-            continue  # carries an inline reason: an auditable decision, not an unexplained suppression
-        rel = token.lstrip("./")
-        if "/" not in rel:
-            continue  # a bare name (BRIEF.md, INDEX.md): nothing on disk can be checked against it
-        if token.startswith(("$", "~")):
-            continue  # an instance path the distribution does not carry, by design
-        if list(cfg.root.glob(rel)) if any(c in rel for c in "*?[") else (cfg.root / rel).exists():
-            out.append(f"W00A core.pointer_ignore names `{token}`, which exists in this repo: "
-                       f"a suppression that suppresses nothing hides the check it excuses")
-        else:
-            base = re.split(r"[*?\[]", rel, 1)[0].rstrip("/")
-            if any(c in rel for c in "*?[") and base and (cfg.root / base).is_dir():
-                out.append(f"W00B core.pointer_ignore names `{token}`, a glob whose directory "
-                           f"exists here but which matches no file: the reason may have been "
-                           f"'not in this repo'")
-            elif not any(c in rel for c in "*?[") and (cfg.root / rel).parent.is_dir():
-                out.append(f"W00B core.pointer_ignore names `{token}`, whose directory exists here "
-                           f"but whose file does not: the reason may have been 'not in this repo'")
     # agent contract pointers
     if cfg.has("agents"):
         text = read(cfg.path("agents"))
         for n, t in pointers(text, ign):
             if not pointer_exists(cfg, t, names):
                 out.append(f"E001 {cfg.paths['agents']}:{n} points at missing `{t}`")
-            elif "/" in t and (cfg.root / t).is_file() and TOMBSTONE.search(read(cfg.root / t)):
+            elif "/" in t and (cfg.root / t).is_file() and is_tombstone(read(cfg.root / t)):
                 out.append(f"E005 {cfg.paths['agents']}:{n} points at a tombstone `{t}`")
     elif cfg.form("agents")[0] == "file":
         out.append("W000 no agent contract (AGENTS.md) — the entry point for every future agent")
@@ -1527,17 +1501,10 @@ def lint_core(cfg: Cfg) -> list[str]:
         titles = []
         for f in sorted(plans.glob("*.md")):
             body = read(f)
-            if "kb: tombstone" in body:
+            if is_tombstone(body):
                 continue
             h = next((ln for ln in body.splitlines() if ln.startswith("#")), "")
-            # The dates are not part of the question. Two plans named `2026-10-24` and
-            # `2026-10-17` shared `2026` and the two words every gap record carries, scored
-            # exactly 0.50 against the threshold below, and the rule reported a duplication
-            # between a knowledge-base plan and a whole-distribution one -- a false positive
-            # on the document pair an operator is most likely to open. A year and a day
-            # tokenize into the question's vocabulary; they carry no question.
-            bare = re.sub(r"\b\d[\d-]*\d?\b", " ", h.lower())
-            titles.append((f.name, set(re.findall(r"[a-z]{4,}", bare))))
+            titles.append((f.name, set(re.findall(r"[a-z0-9]{4,}", h.lower()))))
         for i in range(len(titles)):
             for j in range(i + 1, len(titles)):
                 a, b = titles[i][1], titles[j][1]
@@ -1745,6 +1712,7 @@ def lint_ops(cfg: Cfg) -> list[str]:
     out = []
     files = tracked(cfg)
     names = files
+    ign = cfg.ignore()
     # ownership map: every owner-location doc is listed
     if cfg.has("ownership_map"):
         mp = read(cfg.path("ownership_map"))
@@ -1825,6 +1793,18 @@ def misplaced_paths(cfg) -> list[str]:
     always been. With the derived default the rule is scoped to documents,
     because a Cargo.toml, a LICENSE and a genome.toml are the repo's own
     machinery and flagging them would train the agent to ignore the check.
+
+    A TOMBSTONE IS NOT MISPLACED. Measured 2026-10-31 on the live fleet: the
+    post-upgrade sweep found `E306 PLAN_SESSION_PICKER_UPGRADE.md: no role
+    points here` in operant, on a file that is exactly what the archive
+    workflow writes — a root-level pointer whose whole job is to say "this
+    moved to docs/archive/X". Flagging it makes the one prescribed act
+    (move the document, leave the pointer) an error, so the operator's choices
+    reduce to committing the error or deleting the pointer and losing the
+    breadcrumb. Every other check already honours the marker: `lint_core`
+    skips a tombstoned plan in its duplicate-title pass (line 162 above), and
+    E005 fires when something *points* at one. This is that exemption, in the
+    place that decides, so `lint_root_placement` and `close` share it.
     """
     legal = legal_root_files(cfg)
     derived = cfg.get("ops", "root_files") is None
@@ -1839,6 +1819,8 @@ def misplaced_paths(cfg) -> list[str]:
             continue
         if derived and not name.lower().endswith((".md", ".markdown")):
             continue
+        if is_tombstone(read(cfg.root / f)):
+            continue    # a pointer into docs/archive is where it belongs
         out.append(f)
     return sorted(out)
 
@@ -1873,6 +1855,117 @@ def lint_root_placement(cfg: Cfg) -> list[str]:
     """
     return [f"E306 {f}: no role points here — move it under docs/, or give it a role"
             for f in misplaced_paths(cfg)]
+
+
+def lint_dir_names(cfg: Cfg) -> list[str]:
+    """E308: a directory whose name breaks a declared pattern, or collides with a sibling.
+
+    The absorbed workspace-lint validator carried two checks genome had no answer
+    for. Both are about a directory's NAME, not its contents, so neither belongs
+    in `dir_suffixes` (what may live inside) or `dir_requires` (what must exist).
+
+    **Patterns** (`ops.dir_name_patterns`) catch names that are illegal by
+    convention rather than by placement: leading/trailing whitespace, a stray
+    prefix left by a copy, an unnormalized unicode dash. A pattern like
+    `^\\s|\\s$` is the usual one, but any regex the repo declares is honoured, so
+    a project with its own naming law states it once instead of in prose.
+
+    **Collisions** (`ops.dir_name_exempt` may name one) are surfaced separately
+    because they are the half people do not expect. Two directories whose names
+    differ only by case, whitespace or a zero-width mark are one directory to a
+    reader and two to git: `PHANTOM` beside `phantom`, or `Docs` beside `docs`.
+    Git tracks both, they never merge, and every agent that opens one wonders
+    which is live. No config declares a collision, which is why it is reported
+    with no pattern at all — but the exemption still applies, because a repo that
+    carries `fonts/Font` and `fonts/font` on purpose has said so, and a gate that
+    cannot be satisfied stops being read.
+    """
+    out = []
+    pats = cfg.get("ops", "dir_name_patterns", [])
+    exempt = cfg.get("ops", "dir_name_exempt", [])
+
+    def pattern_bad(d: str) -> str | None:
+        for p in pats:
+            try:
+                if re.search(p, d):
+                    return p
+            except re.error:
+                continue    # a bad pattern is a config error reported by lint, not a crash here
+        return None
+
+    # Siblings are grouped and THEN judged, rather than judged in walk order. Two
+    # directories that normalize to one name are a group, and a group is reported
+    # once: naming every member would print N lines for one defect, and reporting
+    # only the pair the readdir happened to yield first would make the answer
+    # depend on the filesystem. os.walk's order is the directory's, not ours.
+    for dirpath, dirnames, _ in os.walk(cfg.root):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith((".", "__")))
+        groups: dict[str, list[str]] = {}
+        for d in dirnames:
+            # Case, whitespace and the invisible marks are folded, because
+            # `PHANTOM-PHASE` and `PHANTOM\u2010PHASE` are one directory to a reader
+            # and two to git. `\u200b` is stripped rather than normalized to keep the
+            # CLI import-free for the class that actually occurs.
+            groups.setdefault(d.casefold().strip().replace(" ", "").replace("\u200b", ""), []).append(d)
+        for norm, members in groups.items():
+            rels = [cfg.rel(Path(dirpath) / d) for d in members]
+            # A colliding group is judged on its NON-EXEMPT members. Exempting one
+            # name is a statement about that name, not about its siblings: a repo with
+            # `fonts/Font` and `fonts/font` on purpose exempts them, and a stray third
+            # is still reported. Fewer than two non-exempt members is not a defect.
+            live = [(r, d) for r, d in zip(rels, members)
+                    if not any(gmatch(r, g, cfg) for g in exempt)]
+            if not live:                     # the whole group is exempt: nothing to judge
+                continue
+            if len(live) == 1:
+                # the pattern half: a NAME the project forbids, wherever it sits
+                p = pattern_bad(live[0][1])
+                if p:
+                    out.append(f"E308 {live[0][0]}/ matches ops.dir_name_patterns `{p}` — rename it")
+                continue
+            # the collision half: one group, one line, every non-exempt member named
+            names = ", ".join(f"{r}/" for r, _ in live)
+            out.append(f"E308 {names} normalize to the same directory name — merge them, "
+                       f"rename one, or add an ops.dir_name_exempt entry")
+            # a pattern in a colliding group is still worth saying: fixing the
+            # spelling does not fix the collision, but it is the same file's fault
+            for r, d in live:
+                p = pattern_bad(d)
+                if p:
+                    out.append(f"E308 {r}/ matches ops.dir_name_patterns `{p}` — rename it")
+    return out
+
+
+def lint_tracked_but_ignored(cfg: Cfg) -> list[str]:
+    """E309: a file git tracks and .gitignore ignores at the same time.
+
+    `git ls-files -i -c --exclude-standard` names tracked files matching an
+    ignore pattern. Both facts are true simultaneously, which is the defect:
+    tracking wins on `git status`, so the file is committed and diffed as normal,
+    while the ignore rule that supposedly excludes it applies to nothing. Every
+    generator that writes that path produces an untracked sibling beside a
+    tracked one, and the next `git add` of the directory adds the wrong file.
+
+    This is NOT E305 (regenerable bulk in git) and NOT E306 (misplaced file):
+    both of those run `ls-files -co` and answer what is tracked; only `-i` names
+    the contradiction, which is why the check did not exist. Genome never passed
+    `-i`, so no lint path could see it.
+
+    The remedy is the one the absorbed validator gave, and it is a git decision,
+    not a rename: `git rm --cached` keeps the working file and stops tracking
+    it, which is what an ignore rule that already matches it wants.
+    """
+    out = []
+    allow = set(cfg.get("ops", "bulk_allow", []))
+    for f in sh(cfg.root, "git", "ls-files", "-i", "-c", "--exclude-standard", "-z").split("\0"):
+        f = f.strip()
+        if not f or not (cfg.root / f).exists():
+            continue    # a staged deletion is already the resolution
+        if f in allow or any(gmatch(f, g, cfg) for g in allow):
+            continue
+        out.append(f"E309 {f} is tracked and also matches .gitignore — `git rm --cached {f}` "
+                   f"(keeps the file, stops the contradiction)")
+    return out
 
 
 def lint_layout(cfg: Cfg) -> list[str]:
@@ -1955,24 +2048,365 @@ def cmd_lint(args) -> None:
     found = run_lint(cfg, args.only)
     if args.code:
         found = [f for f in found if f.startswith(tuple(args.code))]
+    # Three severities, and only one of them stops the build. An `I` finding is a
+    # fact an operator should see (this repo declares a Rust build but no cargo
+    # binary is on PATH) that no check can call a defect: flagging it as a warning
+    # would train the reader to ignore warnings, and as an error it would block a
+    # commit for something the environment, not the repo, owns.
     errs = [f for f in found if f.startswith("E")]
+    infos = [f for f in found if f.startswith("I")]
+    warns = [f for f in found if f.startswith("W")]
     if args.json:
-        jprint({"errors": len(errs), "warnings": len(found) - len(errs), "modules": sorted(cfg.modules),
-                "findings": [{"code": f[:4], "severity": "error" if f[0] == "E" else "warning", "text": f[5:]} for f in sorted(found)]})
+        jprint({"errors": len(errs), "warnings": len(warns), "info": len(infos), "modules": sorted(cfg.modules),
+                "findings": [{"code": f[:4], "severity": SEVERITY[f[0]], "text": f[5:]} for f in sorted(found)]})
         raise SystemExit(ERR if errs and not args.advisory else 0)
     by: dict[str, list[str]] = {}
-    for f in sorted(found, key=lambda s: (s[0] == "E", s)):
+    for f in sorted(found):
         by.setdefault(f[:4], []).append(f)
     for code, items in by.items():  # capped per code: lint output is read by agents, every line costs
         for f in items if args.all else items[:5]:
             print(f)
         if not args.all and len(items) > 5:
             print(f"{code} ... {len(items) - 5} more (`genome lint --code {code} --all`)")
-    print(f"lint: {len(errs)} error(s), {len(found) - len(errs)} warning(s) [{', '.join(sorted(cfg.modules))}]"
+    parts = [f"{len(errs)} error(s)"]
+    if warns:
+        parts.append(f"{len(warns)} warning(s)")
+    if infos:
+        parts.append(f"{len(infos)} info")
+    print(f"lint: {', '.join(parts)} [{', '.join(sorted(cfg.modules))}]"
           if found else f"lint: clean [{', '.join(sorted(cfg.modules))}]")
     raise SystemExit(ERR if errs and not args.advisory else 0)
 
 
+# ---------------------------------------------------------------- integrity
+
+APP_KINDS = {
+    # The manifest that identifies a toolchain, and the command that checks it. A repo
+    # declares its toolchain by NAME and genome knows the rest, so "is this Rust
+    # project's build broken" is one question every Rust repo answers the same way,
+    # rather than one shell string each operator hand-writes. `probe` is what proves
+    # the tool exists: `cargo --version` failing means the check cannot run, which is
+    # an I, not an E — the repo is fine and the machine is not.
+    "python": {"manifest": ["pyproject.toml", "setup.py", "requirements.txt", "setup.cfg"],
+               "probe": ["python3", "--version"],
+               "build": "python3 -m compileall -q .",
+               "test": "python3 -m pytest -q",
+               "lint": "python3 -m ruff check .",
+               "fmt": "python3 -m ruff format --check .",
+               "doc": "python3 -m pydoc -w ."},
+    "rust": {"manifest": ["Cargo.toml"], "probe": ["cargo", "--version"],
+             "build": "cargo build --workspace --locked",
+             "test": "cargo test --workspace",
+             "lint": "cargo clippy --workspace -- -D warnings",
+             "fmt": "cargo fmt --check"},
+    "node": {"manifest": ["package.json"], "probe": ["node", "--version"],
+             "build": "npm run build", "test": "npm test",
+             "lint": "npx eslint .", "doc": "npx typedoc"},
+    "typescript": {"manifest": ["tsconfig.json"], "probe": ["node", "--version"],
+                   # NOT `npx tsc --version`: with no node_modules, npx resolves the name from the
+                   # registry and prints "This is not the tsc command you are looking for",
+                   # which exits 0 and looks like a working toolchain. Measured 2026-11-03. The
+                   # honest probe is node itself; whether tsc is a local dependency is a question
+                   # `npm run build` answers when it actually runs.
+                   "build": "npx tsc --noEmit", "test": "npm test",
+                   "lint": "npx eslint .", "doc": "npx typedoc"},
+    "go": {"manifest": ["go.mod"], "probe": ["go", "version"],
+           "build": "go build ./...", "test": "go test ./...", "lint": "go vet ./...",
+           "fmt": "test -z \"$(gofmt -l .)\""},
+    "java": {"manifest": ["pom.xml", "build.gradle", "build.gradle.kts"],
+             "probe": ["java", "-version"],
+             "build": "mvn -q compile", "test": "mvn -q test"},
+    "shell": {"manifest": [], "probe": ["bash", "--version"], "lint": "bash -n"},
+}
+
+APP_PHASES = ("build", "test", "typecheck", "lint", "fmt", "doc")  # `fmt` and `doc` are probes, not gates
+
+
+def app_kind(cfg: Cfg) -> str | None:
+    """The toolchain this repo declares, or the one its manifest reveals.
+
+    The declaration wins. `app.toolchain = "rust"` in a repo that also has a
+    package.json is a statement about what this project IS, and a nested JS tool in a
+    Rust workspace must not reclassify the repo.
+
+    Otherwise the manifest decides, and only one may match: two manifests is a
+    monorepo question the operator answers by writing the key, because a guess here
+    would run the wrong toolchain's checks and report a clean build for a repo that
+    was never compiled.
+    """
+    declared = cfg.get("app", "toolchain")
+    if declared:
+        return str(declared)
+    hits = [k for k, v in APP_KINDS.items() if any((cfg.root / m).exists() for m in v["manifest"])]
+    # `python` and `typescript` both recognise a nested package.json/tsconfig, which is
+    # how a Python CLI with a bundled frontend reads; python is the conservative answer
+    # because its checks are the ones that cannot silently pass on the other language.
+    order = ["rust", "go", "java", "typescript", "node", "python", "shell"]
+    hits.sort(key=order.index)
+    return hits[0] if hits else None
+
+
+def _run_ok(cmd, cwd: Path) -> tuple[bool, str]:
+    """(ok, tail) for one integrity command. Never raises: an absent binary is a fact."""
+    try:
+        r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True, timeout=int(os.environ.get("GENOME_APP_TIMEOUT", "300")))
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return (False, str(e)[:200])
+    tail = (r.stdout + r.stderr).strip().splitlines()[-3:]
+    return (r.returncode == 0, "\n       ".join(t for t in tail if t.strip()))
+
+
+def lint_app(cfg: Cfg) -> list[str]:
+    """E651..: application/system integrity — the app builds, tests, lints and installs.
+
+    This is the check the three absorbed skills each needed and none of them had.
+    `doc` validated prose, `install-script-creator` generated an installer, and
+    `workspace-lint` checked the tree. None of them could answer *does this thing
+    still build*, because a skill is not a build.
+
+    Genome answers it from the repo's own declaration, in whatever language the repo
+    is written, so it is the same question with the same answer everywhere:
+
+    - **E651** the declared phase fails. `cargo test` failing is a defect in the code,
+      and it is the one integrity fact that must stop a commit — everything else here
+      is about the tree, this is about the program.
+    - **E652** the `entry` or `manifest` named in `genome.toml` does not exist. A
+      declaration pointing at nothing is worse than no declaration: it reads as
+      checked and is not. (The install script has its own checks — E657/E658/W655.)
+    - **I651** the toolchain is undeclared AND unmanifested, or a probe cannot run.
+      A repo with no toolchain (a KB, a notes repo) is not broken; a Rust repo on a
+      machine with no cargo is a fact about the machine. Neither is an error.
+
+    Silence is the default. A repo that declares nothing AND has no manifest gets
+    nothing at all: a knowledge base and a notes repo have no build, and that is not a
+    finding. The one info worth printing is a toolchain genome found but could not run.
+    """
+    out: list[str] = []
+    kind = app_kind(cfg)
+    spec = APP_KINDS.get(kind, {}) if kind else {}
+    declared_cmds = {p: cfg.get("app", p) for p in APP_PHASES if cfg.get("app", p)}
+
+    # The probe first: a toolchain that cannot run on this machine is the ONE info that
+    # is worth a line, and it is worth one because the alternative is silence about a
+    # check that never ran. Measured 2026-11-03, an earlier "no toolchain declared and
+    # none inferred" line broke every `assert "lint: clean"` in the suite — a KB
+    # legitimately has no build, so the line fired on every healthy notes repo and made
+    # that assertion unusable. An info that is not informational is a defect.
+    probe = cfg.get("app", "install_probe") or (spec.get("probe") if spec else None)
+    if probe:
+        pcmd = probe if isinstance(probe, str) else " ".join(probe)
+        ok, tail = _run_ok(pcmd, cfg.root)
+        if not ok:
+            return [f"I651 `{pcmd}` did not run — the {kind or 'declared'} toolchain is absent or "
+                    f"broken on this machine, so its build/test phases were skipped (a fact about "
+                    f"the environment, not the repo)"]
+    elif not kind and not declared_cmds:
+        return []
+
+    # a repo with a toolchain and no declared phases still gets one line: it names what
+    # was checked, so the estate view can answer "what is this repo" from the lint.
+    if kind:
+        out.append(f"I651 app integrity: toolchain {kind}, "
+                   + (f"{len(declared_cmds)} declared phase(s)" if declared_cmds
+                      else "no phase declared — [app] build/test/lint would run its defaults"))
+
+    # each declared phase runs, and only a failure is an E
+    for phase in APP_PHASES:
+        cmd = cfg.get("app", phase)
+        if cmd is None:
+            continue
+        if isinstance(cmd, str):
+            cmds = [cmd]
+        elif isinstance(cmd, list):
+            cmds = [c for c in cmd if isinstance(c, str) and c.strip()]
+        else:
+            out.append(f"E652 [app] {phase} is neither a string nor a list of strings")
+            continue
+        for c in cmds:
+            ok, tail = _run_ok(c, cfg.root)
+            if not ok:
+                label = phase if phase not in ("fmt", "doc") else f"{phase} (advisory phase)"
+                if phase in ("fmt", "doc"):
+                    # a formatter and a doc build are advisory: failing them is a W at
+                    # most, because the app still builds and runs without prettier.
+                    out.append(f"W654 [app] {label} `{c}` failed:\n       {tail}")
+                else:
+                    out.append(f"E651 [app] {label} `{c}` failed:\n       {tail}")
+
+    # declared paths that must exist. The install script is NOT here: `lint_install_script`
+    # owns that question whole (existence, executable bit, verification step), and a
+    # second report for one missing file reads as two broken things instead of one.
+    for key, label in (("entry", "entry"), ("manifest", "manifest")):
+        v = cfg.get("app", key)
+        if not v:
+            continue
+        paths = [v] if isinstance(v, str) else [p for p in v if isinstance(p, str)]
+        for p in paths:
+            if not (cfg.root / p).exists():
+                out.append(f"E652 [app] {label} `{p}` does not exist — a declaration pointing at "
+                           f"nothing reads as checked and is not")
+    return out
+
+
+def lint_docs_required(cfg: Cfg) -> list[str]:
+    """E653: a document genome.toml declares, per kb, that this repo must carry.
+
+    A project-grade repo owes its readers certain documents, and which ones is a
+    property of the project, not of genome: a CLI owes a README and an ARCHITECTURE,
+    a library owes API docs, a skill owes SKILL.md. So the repo writes the list in
+    `[docs] required` and `genome lint` is what enforces it — the same way E306
+    enforces the tree, one declaration and one gate.
+
+    An empty or near-empty required document is the half that matters most and is the
+    half a naive existence check misses: a README.md holding only a title satisfies
+    "exists" and tells a reader nothing. So a required doc must carry real content,
+    which is measured here rather than assumed.
+
+    - **E653** a required document is absent, or holds no content beyond its heading.
+    - **W653** a required document is shorter than the band its class expects — thin,
+      which is a judgement the operator makes, not a broken gate.
+    - **E654** a required section (`[docs] sections`) is missing from a required doc.
+    - **W651** a required doc has no table of contents yet is long enough to need one.
+    """
+    out: list[str] = []
+    req = cfg.get("docs", "required", [])
+    if not req:
+        return out
+    # a required doc is either "every doc named" or a per-file map of {path = "class"};
+    # a plain list names the paths, and a path may carry its class after a colon, so
+    # the common case stays one line: required = ["README.md", "AGENTS.md", "docs/ARCHITECTURE.md"]
+    entries: list[tuple[str, str]] = []
+    for item in req:
+        if isinstance(item, str):
+            path, _, cls = item.partition(":")
+            entries.append((path.strip(), cls.strip()))
+        elif isinstance(item, dict):
+            entries += [(str(p), str(c)) for p, c in item.items()]
+    need_sections = cfg.get("docs", "sections", {})
+    max_lines = int(cfg.get("docs", "max_lines", 0) or 0)
+    # A repo that wants the thin-doc WARNING at all opts in by naming a minimum length.
+    # Measured 2026-11-03: with a hardcoded band, a fresh `genome init` tree whose
+    # README.md is a three-line stub was reported as thin, on every new repo, on its
+    # first lint. A warning that fires on the tool's own scaffolding is a warning the
+    # reader learns to skip, which is the same failure as having no check.
+    min_lines = int(cfg.get("docs", "min_lines", 0) or 0)
+    for path, cls in entries:
+        p = cfg.root / path
+        if not p.exists():
+            out.append(f"E653 {path} is declared required by [docs] and does not exist")
+            continue
+        text = read(p)
+        # a heading and nothing else is an absent document that happens to exist
+        body = [l for l in text.splitlines() if l.strip() and not l.lstrip().startswith("#")]
+        if not body:
+            out.append(f"E653 {path} is declared required and holds no content beyond its heading")
+            continue
+        if min_lines and len(text.splitlines()) < min_lines:
+            out.append(f"W653 {path} is declared required and is {len(text.splitlines())} line(s) — "
+                       f"under [docs] min_lines = {min_lines}, a required doc this thin tells a "
+                       f"reader nothing")
+        if need_sections and path in need_sections:
+            for sec in need_sections[path] if isinstance(need_sections[path], list) else [need_sections[path]]:
+                if not re.search(rf"^#+\s+.*{re.escape(str(sec))}", text, re.M):
+                    out.append(f"E654 {path} is missing the required section `{sec}`")
+        if max_lines and len(text.splitlines()) > max_lines and not re.search(r"^##+ +Contents", text, re.M):
+            out.append(f"W651 {path} is {len(text.splitlines())} lines with no table of contents "
+                       f"(over [docs] max_lines = {max_lines})")
+    return out
+
+
+def lint_dirs_declared(cfg: Cfg) -> list[str]:
+    """E655: a directory genome.toml declares must exist, and must not be empty.
+
+    The inverse of E306, which asks "a directory that exists holds the file it must".
+    This asks "a directory I declared is there at all" — and the second half is the one
+    that actually bites, because a declared directory that exists but holds nothing is
+    indistinguishable at a glance from a real one: `docs/audit/` with no reports in it
+    either means the audit never ran or means its reports were lost.
+
+    - **E655** a declared directory (`ops.dir_globs`) does not exist.
+    - **E656** a declared directory that is NOT a genome role's home exists and is empty.
+      An empty directory is invisible to git, so it is also invisible to every check
+      that reads the index — which is why this one walks the filesystem rather than
+      `git ls-files`. A role dir is exempt, because `genome init` creates those empty and
+      they fill as the work happens.
+    """
+    out: list[str] = []
+    globs = cfg.get("ops", "dir_globs", [])
+    if not globs:
+        return out
+    # A genome role dir is created EMPTY by `genome init` and fills as the work happens,
+    # so its emptiness is the project's lifecycle, not a defect: `docs/plans/` holds
+    # nothing on a new repo until the first plan. Measured 2026-11-03, checking every
+    # declared dir for emptiness reported E656 on `docs/audit` of a fresh tree — because
+    # `audits` is a DEFAULT role pointing there — which made the check fire on the tool's
+    # own scaffolding. So emptiness is scoped to declared dirs that are NOT a role's
+    # mapped home: a role dir's emptiness is its lifecycle, a stranger dir's emptiness is
+    # a directory git does not track and no reader can see.
+    role_homes = {cfg.rel(cfg.path(r)).rstrip("/") for r in cfg.paths}
+    for pat in globs:
+        pat = str(pat)
+        for d in sorted(p for p in cfg.root.glob(pat.rstrip("/")) if p.is_dir() and not p.name.startswith((".", "__"))):
+            rel = cfg.rel(d)
+            if rel not in role_homes and not any(d.iterdir()):
+                out.append(f"E656 {rel}/ is declared by ops.dir_globs and is empty — git does not "
+                           f"track empty directories, so this one exists on this machine only")
+        # a declared dir that matches NOTHING is the more common failure: a typo, or a
+        # dir an emitter was supposed to create. `genome init` creates the roles; a repo
+        # that renames one by hand and forgets the key gets a silent no-match here.
+        matches = [p for p in cfg.root.glob(pat.rstrip("/")) if p.is_dir() and not p.name.startswith((".", "__"))]
+        if not matches and not (cfg.root / pat.rstrip("/")).exists():
+            out.append(f"E655 {pat} is declared by ops.dir_globs and does not exist")
+    return out
+
+
+def lint_install_script(cfg: Cfg) -> list[str]:
+    """E657: a project-grade repo's installer, when the repo declares it has one.
+
+    A distribution question, not a code question: a repo that ships a one-line install
+    must be able to install, and an installer that cannot be found is a broken release.
+    The repo declares where its installer lives (`app.install_script`), or genome
+    infers it from the conventional names, and then enforces the two things that make
+    an installer real:
+
+    - **E657** the declared or inferred install script does not exist.
+    - **E658** the install script is not executable.
+    - **W655** the install script does not name a verification step. An installer with
+      no `verify` is one that reports success when the install half-happened, which is
+      the failure mode `install-script-creator` wrote `verify_install.sh` to catch.
+
+    Silence by default: a knowledge base and a notes repo have no installer, and this
+    check asks nothing of them unless they declare one.
+    """
+    out: list[str] = []
+    declared = cfg.get("app", "install_script")
+    # inference is deliberately NARROW: only the name this project's own installer uses.
+    # A repo that vendors a third-party install.sh is not shipping that installer, and
+    # flagging it would be a false positive on every vendored dependency.
+    candidates = [declared] if declared else []
+    if not candidates:
+        for name in ("install.sh", "install.ps1"):
+            if (cfg.root / name).exists():
+                candidates.append(name)
+    if not candidates:
+        return out
+    for name in candidates:
+        p = cfg.root / name
+        if not p.exists():
+            out.append(f"E657 install script `{name}` is declared by [app] and does not exist")
+            continue
+        if name.endswith(".sh"):
+            if not os.access(p, os.X_OK):
+                out.append(f"E658 {name} is not executable — `chmod +x {name}`")
+            text = read(p)
+            if not re.search(r"\b(verify|check|--version|--help)\b", text):
+                out.append(f"W655 {name} has no verification step — an installer that reports success "
+                           f"when the install half-happened is the failure mode verify_install.sh catches")
+    return out
+
+
+CHECKS["integrity"] = lambda cfg: lint_app(cfg) + lint_docs_required(cfg) + lint_dirs_declared(cfg) \
+    + lint_install_script(cfg)
 # ---------------------------------------------------------------- doctor
 
 def py_imports(cfg: Cfg, script: Path) -> set[Path]:
@@ -2139,8 +2573,10 @@ def inventory(cfg: Cfg) -> list[str]:
                    f"{len(records(cfg, True))} retired in {cfg.rel(rec_archive(cfg))}")
     if worklog_numbered(cfg) and (wf := worklog_files(cfg)):
         out.append(f"worklog: {len(wf)} entries, latest {wf[-1].name}")
-    # a vendored copy drifts from the skill it came from; say so (never auto-update: the repo pins its tool)
-    skill = Path(os.environ.get("GENOME_SKILL", "~/.agents/skills/project-genome/scripts/genome")).expanduser()
+    # a vendored copy drifts from the skill it came from; say so (never auto-update: the repo pins its tool).
+    # An installed package has no separate skill copy: it IS the shipped one, so there
+    # is nothing to drift from and nothing to report.
+    skill = skill_copy()
     me = Path(__file__).resolve()
     if skill.is_file() and skill.resolve() != me and skill.read_bytes() != me.read_bytes():
         v = re.search(r'^VERSION = "([^"]+)"', read(skill), re.M)
@@ -2402,7 +2838,14 @@ def cmd_close(args) -> None:
         print(f"emit   genome zones refreshed: {', '.join(changed)}")
     lint = run_lint(cfg)
     errs = [f for f in lint if f.startswith("E")]
-    print(f"lint   {len(errs)} error(s), {len(lint) - len(errs)} warning(s)")
+    warns = [f for f in lint if f.startswith("W")]
+    infos = [f for f in lint if f.startswith("I")]
+    counts = [f"{len(errs)} error(s)"]
+    if warns:
+        counts.append(f"{len(warns)} warning(s)")
+    if infos:
+        counts.append(f"{len(infos)} info")
+    print(f"lint   {', '.join(counts)}")
     for f in errs[:20]:
         print(f"       {f}")
     red |= bool(errs)
@@ -2606,6 +3049,7 @@ MODULE_HELP = {
     "ops": "secrets + lint gates: ownership map, links, unreachable code, tracked bulk, running-job guard",
     "agents": "wf new|add|list, claim, done, claim-register, post, feed (parallel agents)",
     "outline": "outline | outline-check (the stack zone in AGENTS.md, derived from the tree)",
+    "integrity": "app build/test/lint by toolchain, [docs] required docs and sections, ops.dir_globs",
 }
 
 
@@ -3084,6 +3528,1129 @@ def cmd_prereg(args) -> None:
         raise SystemExit(ERR if bad else 0)
 
 
+# ---------------------------------------------------------------- installation registry
+
+# The fleet problem this module solves: `genome` is installed in several places
+# per machine (skills roots, ~/.local/bin, sometimes /usr/local/bin, plus every
+# repo that vendors scripts/genome), and an upgrade that touches only the
+# known paths leaves the others silently stale — exactly what the machine this
+# was first written on showed: two skills roots two commits behind origin and
+# the PATH copy two VERSION stamps behind the skill, with nothing tracking it.
+#
+# The registry is one JSON manifest in the user's home, written by install.sh
+# and by `genome installs register`, read by `genome installs list|verify`:
+#   {"schema": 1, "installs": [{"kind": "skill|bin|vendored|kb", "path": "...",
+#     "version": "...", "registered": "ISO8601", "note": "..."}]}
+# `kind` drives the upgrade advice: skills roots are updatable by install.sh's
+# update branch, bins are re-linked by it, vendored copies upgrade via
+# `genome upgrade --apply` (or `git pull` where the repo tracks them).
+# A vendored entry is informational — this CLI never writes outside the home
+# manifest without a command that names the target.
+#
+# `kb` is the knowledge-base kind: a directory holding genome.toml (or the legacy
+# kb.toml) that may or may not vendor a CLI copy. It exists because every activated
+# genome is a KB whether or not it vendors the CLI, and the vendored rows alone left
+# three live KBs off the registry (the meta-root, pioneer-qf, and a nested KB that
+# defers to its parent). A kb row with no local CLI reads version 'none' — present
+# and legitimate, nothing to compare — and is never reported as a broken install.
+
+import json
+import os
+import re
+import subprocess
+from pathlib import Path
+
+INSTALLS_SCHEMA = 1
+
+
+def installs_manifest() -> Path:
+    return Path(os.environ.get("GENOME_INSTALLS") or "~/.config/genome/installs.json").expanduser()
+
+
+def load_installs() -> dict:
+    p = installs_manifest()
+    if not p.is_file():
+        return {"schema": INSTALLS_SCHEMA, "installs": []}
+    data = json.loads(p.read_text())
+    if not isinstance(data, dict) or "installs" not in data:
+        die(f"{p}: not an installs manifest (expected JSON with an 'installs' list)")
+    data.setdefault("schema", INSTALLS_SCHEMA)
+    return data
+
+
+def save_installs(data: dict) -> None:
+    p = installs_manifest()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    tmp.replace(p)
+
+
+def _version_key(v: str) -> tuple:
+    """A VERSION stamp as a sortable key: YYYY.MM.DD-N tuples compare chronologically, so
+    'the freshest registered copy' is a max(), not a string compare."""
+    m = re.match(r"(\d{4})\.(\d{2})\.(\d{2})-(\d+)$", v or "")
+    return tuple(int(g) for g in m.groups()) if m else (0, 0, 0, 0)
+
+
+def _verify_against_shipped(rows: list) -> None:
+    """The check the registry clause actually needs: every registered install against the
+    SHIPPED reference, not against its own registration record. The reference is the
+    freshest live version among the skill/bin rows — the copies install.sh manages —
+    RAISED to the running CLI's own VERSION, because those rows are only as current as
+    the last publish while the repo under development is by definition newer. A row whose
+    live version is older is BEHIND and listed with the delta; a row whose version is not
+    comparable (a fork with a local stamp) is reported UNKNOWN rather than silently
+    green. Exit 2 when anything is behind: 'all upgrades are seamless' has to start
+    with knowing which copies are behind."""
+    live = {r["path"]: _version_of(Path(r["path"])) for r in rows}
+    refs = [live[r["path"]] for r in rows if r.get("kind") in ("skill", "bin") and _version_key(live[r["path"]]) > (0,) * 4]
+    if not refs:
+        die("no skill/bins copy registered to use as the shipped reference — run install.sh "
+            "or `genome installs register skill <root>` first", ERR)
+    ref = max(refs, key=_version_key)
+    # Same correction the dispatch needed (2026-10-31, commit for `2026.10.30-25`): the
+    # registered floor is a PUBLISH-TIME snapshot, so on a development day it is one
+    # release behind the CLI actually running, and this check then calls every copy "at
+    # the shipped version" for a shipped version that no longer exists. Measured: the
+    # four skill roots are at `2026.10.30-22`, the running CLI at `-25`, and this command
+    # printed "shipped is 2026.10.30-22" — so an operator reading it learned the wrong
+    # target. The running CLI wins for the same reason it wins in `_dispatch_upgrade`: it
+    # is the newest thing the operator can name, and the floor still prevents dragging a
+    # repo backwards from an older checkout.
+    me = _file_version(Path(__file__).read_text())
+    if _version_key(me) > _version_key(ref):
+        ref = me
+    behind, unknown, tampered = [], [], []
+    for r in rows:
+        v = live[r["path"]]
+        if v in ("missing", "none"):
+            continue
+        if _version_key(v) < _version_key(ref):
+            behind.append((r, v))
+        elif _version_key(v) == (0,) * 4:
+            unknown.append((r, v))
+        elif not _matches_ledger(Path(r["path"]), v):
+            # A copy that claims a released version but does not carry that release's
+            # bytes. This is the integrity question the install-time check exists for:
+            # a hand-edit, a bad merge, a file restored from the wrong backup, or a
+            # partial write all look like a valid release from the version line alone.
+            # The fleet's whole premise is that a vendored copy is the released file,
+            # so a copy that is not reported CORRUPTED is a copy the operator cannot
+            # trust — and it would otherwise pass this check as clean.
+            tampered.append((r, v))
+    for r, v in behind:
+        print(f"BEHIND  {r['kind']:8} {r['path']} — {v}, shipped is {ref}")
+    for r, v in unknown:
+        print(f"UNKNOWN {r['kind']:8} {r['path']} — version {v!r} does not compare (a local stamp?)")
+    for r, v in tampered:
+        print(f"CORRUPTED {r['kind']:6} {r['path']} — claims {v} but its bytes differ from the release "
+              f"(a hand-edit, a partial write, or the wrong restore)")
+    # The fourth question, added 2026-11-02 after the census measured 68 of 85 rows at
+    # the shipped bytes on disk and older bytes at HEAD: a copy can be CURRENT and still
+    # be one `git restore` from a regression. Behind/tampered are about what the bytes
+    # ARE; this is about what git will let them STAY. It does not gate the exit code,
+    # because a repo that intentionally gitignores its generated copy is healthy — this
+    # prints the fact and lets the operator decide, which is the one judgement here that
+    # 68 owners hold and this seat does not.
+    uncommitted = []
+    for r in rows:
+        if r.get("kind") not in ("vendored", "bin"):
+            continue    # a skills root is a checkout of the publisher, not a vendored copy
+        p = Path(r["path"])
+        found = _uncommitted_cli(p)
+        if found:
+            uncommitted.append((r, found))
+    for r, (cli, st) in uncommitted:
+        try:
+            shown = cli.relative_to(Path(r["path"]))
+        except ValueError:
+            shown = cli
+        print(f"UNCOMMITTED {r['kind']:6} {r['path']} — {shown} is modified in the working tree "
+              f"({st}); git can discard it on the next restore/checkout")
+    if uncommitted:
+        print(f"note: {len(uncommitted)} row(s) hold the shipped bytes but have not committed them — "
+              f"verify reads the disk, git holds the history, and only the owner knows which one is "
+              f"authoritative")
+    if not behind and not unknown and not tampered:
+        print(f"verify: all {len(rows)} registered install(s) at the shipped version {ref}")
+        return
+    die(f"{len(behind)} behind, {len(unknown)} unknown, {len(tampered)} corrupted (shipped {ref})", ERR)
+
+
+def _release_ledger() -> dict[str, str]:
+    """VERSION -> sha256 from the release ledger, or {} when no ledger is on the machine.
+
+    The ledger lives beside the SKILL copy (`scripts/releases.txt`), which is the
+    published source of truth, not beside each vendored copy. Measured 2026-10-31: a
+    vendored repo holds `scripts/genome` and no `releases.txt` at all — so a check that
+    looked beside every copy would find nothing on the entire fleet and report the
+    estate clean. That is the defect this whole function exists to catch, reproduced
+    inside the fix: reading the ledger from the copy instead of from the publisher.
+
+    The kernel checkout counts too, since on a development day its ledger is ahead of
+    the last publish and the operator is iterating against it."""
+    for c in (Path("~/.agents/skills/project-genome/scripts/releases.txt").expanduser(),
+              Path("~/.claude/skills/project-genome/scripts/releases.txt").expanduser(),
+              Path("~/.codex/skills/project-genome/scripts/releases.txt").expanduser(),
+              Path("~/.zcode/skills/project-genome/scripts/releases.txt").expanduser(),
+              Path(__file__).resolve().parent.parent / "scripts" / "releases.txt"):
+        if c.is_file():
+            out = {}
+            for ln in c.read_text(errors="replace").splitlines():
+                parts = ln.split()
+                if len(parts) >= 2 and not ln.startswith("#"):
+                    out[parts[0]] = parts[1]
+            if out:
+                return out
+    return {}
+
+
+def _matches_ledger(path: Path, version: str) -> bool:
+    """True when a copy's bytes are the released bytes for its own VERSION.
+
+    A copy whose sha matches the ledger is the release; one that does not is local, and
+    the caller says so rather than trusting a version line a local edit left in place.
+    This is the integrity question: without it, a hand-edit, a partial write, a bad
+    merge, and a restore-from-the-wrong-backup are all indistinguishable from a genuine
+    release, because each of them left the version line alone.
+
+    Three states are deliberately NOT failures. A version with no ledger entry (an
+    unreleased build the operator is iterating on, or a fork's own stamp), a path that is
+    not a file (a register mistake, which `missing` already reports), and an unreadable
+    file all return True: calling them corrupted would fail every machine
+    mid-development. A False is reserved for bytes that provably differ from a release
+    that IS recorded — the state where the operator has to look."""
+    script = _script_of(path)
+    if not script.is_file():
+        return True
+    ledger = _release_ledger()
+    known = ledger.get(version, "")
+    if not known:
+        return True
+    try:
+        actual = hashlib.sha256(script.read_bytes()).hexdigest()
+    except OSError:
+        return True
+    return actual.startswith(known)
+
+
+def _script_of(path: Path) -> Path:
+    """A registered path's genome script: the path itself when it is one (bin symlink or vendored
+    scripts/genome), or the skills root's scripts/genome when the path is the root directory.
+
+    A repo can vendor the CLI somewhere other than scripts/genome — pioneer-qf ships
+    bin/genome — so both are probed. A path that has neither is a KB with no local CLI
+    (the meta-root, a nested KB that defers to its parent): that is not 'missing', it is
+    'no CLI here', and the caller must not report it as a broken install.
+
+    A PACKAGE install is a third shape, and it was invisible here. `~/.local/bin/genome`
+    is a console-script stub that uv/pip generates — a few lines of `import sys; from
+    project_genome import main` — so it carries no VERSION line, and resolving the symlink
+    lands on that stub instead of the CLI. Measured 2026-10-31: the registry reported the
+    bin row as `?` while the real file beside it inside the uv environment was
+    `2026.10.30-23`, one release ahead of every skills root on the machine. A registry
+    that reads its own install as unknown cannot tell the operator what is behind, and
+    that line was the only aggregate a fleet view could have been built on.
+
+    The real CLI sits beside the stub inside the same environment:
+    `<env>/lib/python*/site-packages/project_genome/_genome.py`. Probing it is what makes
+    the registry, `installs list`, `installs verify` and every aggregate see an installed
+    package as a versioned install rather than an unknown."""
+    p = path
+    if p.is_dir():
+        for cand in (p / "scripts" / "genome", p / "bin" / "genome"):
+            if cand.exists():
+                return _package_cli(cand)
+        return p / "scripts" / "genome"  # the canonical location, absent — reported as such
+    return _package_cli(p)
+
+
+def _package_cli(p: Path) -> Path:
+    """A console-script stub's real CLI inside its environment, or the path unchanged.
+
+    A real CLI carries a VERSION line in its head — a vendored `scripts/genome`, a skills
+    root's copy, and the packaged `_genome.py` module itself all do — and is returned
+    untouched. pioneer-qf's `bin/genome` is a vendored copy that carries VERSION, so this
+    leaves it alone too.
+
+    A bin with no VERSION line is read two ways, which is the whole of the honest answer:
+    the path itself, and the path its symlink points at. Each is a `bin/` directory inside
+    an environment, so each environment root is probed for
+    `lib/python*/site-packages/*/_genome.py` — the uv-tool and plain-venv layouts
+    respectively. When nothing is there the path is returned as given, so a genuinely
+    unversioned path stays unversioned rather than being dressed up as an install."""
+    try:
+        if not p.is_file():
+            return p
+        if "VERSION" in p.read_text(errors="replace")[:512]:
+            return p
+    except OSError:
+        return p
+    bases = [p.parent]
+    try:
+        if p.resolve() != p:
+            bases.append(p.resolve().parent)
+    except OSError:
+        pass
+    for base in dict.fromkeys(bases):
+        for cand in sorted((base.parent / "lib").glob("python*/site-packages/*/_genome.py")):
+            if cand.is_file():
+                return cand
+    return p
+
+
+def _is_kb(path: Path) -> bool:
+    """A directory is an activated knowledge base when it holds genome.toml (or the
+    legacy kb.toml). A KB may vendor no CLI at all — the meta-root and a nested KB
+    that defers to its parent are both legitimate — so 'no local CLI' is a fact about
+    the KB, not a broken install."""
+    return (path / "genome.toml").is_file() or (path / "kb.toml").is_file()
+
+
+def _version_of(path: Path) -> str:
+    """A registered install's VERSION stamp, or 'missing'/'?' — the same regex `upgrade` trusts.
+
+    A kb row with no local CLI reads 'none', not 'missing': the KB is present and
+    working, it simply has no copy of the CLI to compare against. Reporting it as
+    MISSING would put a healthy KB on the broken list."""
+    p = _script_of(path)
+    if not p.exists():
+        return "none" if _is_kb(path) else "missing"
+    if p.is_symlink():
+        try:
+            p = p.resolve()
+        except OSError:
+            return "?"
+    if not p.is_file():
+        return "none" if _is_kb(path) else "missing"
+    m = re.search(r'^VERSION = "([^"]+)"', p.read_text(errors="replace"), re.M)
+    return m.group(1) if m else "?"
+
+
+def _git_sha(path: Path) -> str:
+    """For skills roots: the checked-out commit, or '-' when the copy has no .git (rsync copies)."""
+    try:
+        r = subprocess.run(["git", "-C", str(path), "rev-parse", "--short", "HEAD"],
+                           capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 else "-"
+    except (OSError, subprocess.TimeoutExpired):
+        return "-"
+
+
+def _uncommitted_cli(repo: Path) -> tuple[Path, str] | None:
+    """(cli file, `git status` line) when a repo's vendored CLI is modified but not
+    committed, else None.
+
+    Why this exists: measured 2026-11-02, the fleet's `2026.10.31-40` dispatch landed
+    correctly in **68 of 85** registered rows and none of them committed it — `M
+    scripts/genome` in `git status`, disk at the shipped bytes, HEAD one release train
+    behind. `installs verify --against-shipped` read the disk and reported all 68
+    healthy, so the estate's own check could not see that every one of them is one
+    `git restore` / `checkout .` / `clean -fd` away from a nine-release rollback.
+    **A guard that checks a write landed, and nothing that checks it stayed landed, is
+    a guard that certifies a regression-in-waiting as healthy.** This is that missing
+    rung, and it is deliberately a *report*, not a fix: 68 owners decide whether their
+    vendored copy is tracked (committed) or generated (gitignored), and neither answer
+    is this seat's to give.
+
+    A repo with no .git is not uncommitted, it is unversioned, and a CLI that is
+    committed-and-clean is exactly the state we want to leave alone."""
+    if not (repo / ".git").exists():
+        return None
+    cli = _repo_cli(repo)
+    if not cli:
+        return None
+    # A vendored copy reached through a symlink lives somewhere else in the same repo:
+    # holon/scripts/genome -> holon/vendor/genome.py. `git status` on the LINK path
+    # reports the link, which is clean and unchanged, while the TARGET it points at is
+    # the modified file (measured 2026-11-02: ` M holon/vendor/genome.py`). Ask git
+    # about the resolved path, so a symlinked copy is not reported clean when the bytes
+    # it resolves to are the ones one `git restore` away from disappearing.
+    try:
+        rel = cli.resolve().relative_to(repo.resolve())
+    except (OSError, ValueError):
+        try:
+            rel = cli.relative_to(repo)
+        except ValueError:
+            return None
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "status", "--short", "--", rel],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    # An empty pathspec is a git error (exit 128), not an empty result: a copy git does
+    # not know about at all reads exactly like a clean one if the failure is mistaken for
+    # silence. Assert the call itself succeeded before believing what it does not say.
+    if r.returncode != 0:
+        return None
+    out = r.stdout.strip()
+    return (cli, out) if out else None
+
+
+def _repo_cli(path: Path) -> Path | None:
+    """The CLI a repo vendors, or None when it vendors none. bin/genome counts:
+    pioneer-qf ships its copy there, and looking only in scripts/ made it invisible."""
+    for cand in (path / "scripts" / "genome", path / "bin" / "genome"):
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _dispatch_upgrade(rows: list, apply: bool, roots: list | None = None) -> None:
+    """Dispatch an upgrade to every registered copy that is behind the shipped one.
+
+    Each repo is upgraded by ITS OWN vendored CLI, run inside that repo — the
+    vendored copy knows the repo's layout, and `upgrade` already refuses to swap a
+    copy that carries a local patch (it keeps the diff and asks first), so a patched
+    copy is never silently overwritten.
+
+    A DRY RUN is the default: this writes into other people's repositories, and a
+    fleet-wide rewrite is the operator's call. --apply performs it; every repo's
+    result is reported, and one failure does not stop the rest.
+
+    `--roots` scopes the dispatch. Measured 2026-10-30, the flag was parsed and then
+    ignored — every byte of scope logic lived in `cmd_upgrade`, and the dispatcher
+    ran the whole fleet regardless — so the sanctioned scoped test could not be
+    performed at all. A scope that matches nothing now dies: an all-clear printed
+    to a `--roots no-such-repo` request is the one output that must never appear,
+    because the operator reading it concludes the fleet is current.
+
+    THE REFERENCE IS MAX(RUNNING CLI, REGISTERED FLOOR). The registered floor came
+    from the skills roots, which install.sh refreshes only at publish time: on a
+    development day the roots sit one release behind the CLI actually running, and
+    the dispatch reported that lagging copy as the target. `GENOME_SKILL` is handed
+    to each vendored CLI, which already reads it, so a fleet dispatched from -23
+    converges on -23 rather than stopping at the roots' -22 — the bootstrap
+    failure proven in a sandbox, where a -23 dispatch delegated to each repo's own
+    old CLI and the whole fleet pinned at -22."""
+    skill_bin = [r for r in rows if r.get("kind") in ("skill", "bin")]
+    if not skill_bin:
+        die("no skill/bin copy registered to use as the shipped reference — "
+            "run install.sh first", ERR)
+    # The running CLI is the newest thing the operator can name, and it beats a
+    # registered floor that a publish has not yet caught up with. A hand-edited
+    # working tree still wins, which is intended: it is what the fleet is converging
+    # toward, and operator hands are on the wheel.
+    floor = max((_version_of(Path(r["path"])) for r in skill_bin), key=_version_key)
+    me = _file_version(Path(__file__).read_text())
+    ref = me if _version_key(me) >= _version_key(floor) else floor
+    if roots:
+        wanted = {r.strip().rstrip("/") for r in roots if r.strip()}
+        before = len(rows)
+        rows = [r for r in rows
+                if str(Path(r["path"]).resolve().name) in wanted
+                or r["path"].rstrip("/") in wanted
+                or os.path.basename(r["path"].rstrip("/")) in wanted]
+        if not rows:
+            # 2026-10-30, `--roots no-such-repo` printed the all-clear line, which is the
+            # one output that must never be produced by a scoped request that matched
+            # nothing — an operator reading it would conclude the fleet is current.
+            names = sorted({Path(r["path"]).resolve().name for r in load_installs()["installs"]})
+            die("no registered install matches " + ", ".join(sorted(wanted))
+                + f" ({before} registered; `genome installs list` names them)", ERR)
+    targets = []
+    for r in rows:
+        if r.get("kind") not in ("vendored", "kb"):
+            continue
+        p = Path(r["path"])
+        cli = _repo_cli(p)
+        if cli is None:
+            continue
+        v = _version_of(p)
+        if v and _version_key(v) < _version_key(ref):
+            targets.append((r, cli, v))
+    if not targets:
+        print(f"dispatch: nothing to upgrade (every registered copy is at {ref})")
+        return
+    print(f"dispatch: {len(targets)} cop(y/ies) behind {ref}"
+          + ("" if apply else " — DRY RUN (--apply performs the upgrade)"))
+    # The swap source each repo's own CLI reads. `skill_copy()` probes the four
+    # skills roots and picks the newest, so it resolves the release even when one
+    # root lags — but a repo whose vendored CLI is OLDER than this dispatch still
+    # hardcodes a single root inside ITSELF. Handing it the right source through the
+    # env it already reads closes the bootstrap problem for every version at once,
+    # which is the only way a fleet dispatched from -23 can reach -23.
+    swap_source = skill_copy()
+    env = dict(os.environ)
+    if swap_source.is_file():
+        env["GENOME_SKILL"] = str(swap_source)
+        sv = _file_version(swap_source.read_text())
+        if _version_key(sv) < _version_key(ref):
+            # Say it out loud rather than letting a slow skills root pin the fleet:
+            # the dispatch would report the target while every repo lands on the
+            # source's version. The drill is to publish first (or point
+            # GENOME_SKILL at the release), and this line names both.
+            print(f"note: the swap source is {sv}, the dispatch target is {ref}")
+            print(f"      each repo swaps in the source, so publish first, or "
+                  f"GENOME_SKILL=<the {ref} copy> genome installs upgrade --apply")
+        else:
+            print(f"swap source: {swap_source} ({sv})")
+    ok = skipped = failed = 0
+    broken_out: list[tuple] = []  # (row, old_version, reason, child_output): upgraded, but left broken
+    for r, cli, v in targets:
+        cmd = [sys.executable, str(cli), "upgrade"] + (["--apply"] if apply else [])
+        try:
+            res = subprocess.run(cmd, cwd=str(Path(r["path"])), capture_output=True,
+                                 text=True, timeout=300, env=env)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            print(f"ERROR  {r['path']} — {e}")
+            failed += 1
+            continue
+        out = (res.stdout + res.stderr).strip()
+        # THE VERDICT IS THE CHILD'S, NOT THE DISPATCH'S. `upgrade` exit 0 means the
+        # swap happened, and a swap that leaves the KB broken still returns 0 — the
+        # post-upgrade finding list only ever goes to stdout. Measured 2026-10-31 on
+        # the live estate: the fleet run reported `dispatch: 74 ok` while one repo had
+        # been left with a stale records zone the new CLI correctly caught, and the
+        # fleet's own summary said nothing was wrong. So the dispatcher reads the
+        # verdict the child already printed and reclassifies: a child whose post-upgrade
+        # list names errors is NOT ok, whatever its exit status.
+        broken = _child_broken(out)
+        # THE SWAP IS ALSO VERIFIED ON DISK. A child that printed `upgraded ... to
+        # <ref>` and exited 0 has still only CLAIMED it moved: the file could be
+        # unchanged (a permissions hiccup in atomic_write's rename), land on the wrong
+        # bytes (a stale GENOME_SKILL), or be half-written. Re-reading the copy after
+        # the child exits is the one check that cannot be fooled by a report. This is
+        # the integrity gate the operator asked for, and it runs whether the child
+        # succeeds or fails: a repo claiming a successful swap that did not happen is
+        # the state that must never read as green.
+        if apply and res.returncode == 0:
+            landed = _version_of(Path(r["path"]))
+            if landed != ref:
+                broken = broken or f"the copy is {landed} on disk, not {ref}"
+        if res.returncode == 0:
+            if not broken:
+                ok += 1
+                print(f"{'upgraded' if apply else 'would upgrade':14} {r['path']}  {v} → {ref}")
+            else:
+                # The swap succeeded, so the file moved — the KB needs a fix, not a
+                # retry, and the line must say so. Reporting `ok` here is the whole
+                # defect: it is the line an operator scans, and a `dispatch: 74 ok`
+                # summary over a fleet with a broken member reads as a green fleet.
+                broken_out.append((r, v, broken, out))
+                print(f"{'upgraded but BROKEN':22} {r['path']}  {v} → {ref}  ({broken})")
+            # The new lint output is part of the result, not noise: a fleet run that
+            # prints only the version line leaves every post-upgrade fix list unread.
+            # The header is the line an operator scans for, so it is named explicitly
+            # rather than left to a numbered-line heuristic that would miss it.
+            # Skip the first line: it is the child's own `path: a -> b` header, which the
+            # dispatch already prints on its own target line above. Printing it twice is
+            # how the duplicate `genome.toml: schema_version ...` line appeared.
+            for line in out.splitlines()[1:]:
+                s = line.strip()
+                if not s:
+                    continue
+                if (s.startswith("lint:") or s.startswith("genome.toml:")
+                        or s.startswith("post-upgrade:") or s.startswith("remedies:")
+                        or s.startswith("after fixing:")):
+                    print(f"        {s}")
+            # The numbered findings themselves: `  1. E017 genome.toml: ...` — strip the
+            # leading spaces and the `N. ` prefix is the marker. Capped at 5 because
+            # lint output is read by agents and every line costs.
+            shown = 0
+            for line in out.splitlines():
+                s = line.strip()
+                if re.match(r"^\d+\. ", s) and shown < 5:
+                    print(f"        {s}")
+                    shown += 1
+        elif "local edits" in out or "patch" in out.lower():
+            # the copy carries a local patch: `upgrade` refused, which is the right
+            # answer — it is reported, never forced through with --accept-patch-loss
+            skipped += 1
+            print(f"skipped (local patch)  {r['path']}  {v}")
+        else:
+            failed += 1
+            # A child that produced no output still owes a REASON, not an exit status:
+            # a crash and a clean refusal both surface as bare 1 otherwise, and the
+            # whole point of a per-repo line is that it is actionable.
+            why = (out.splitlines()[0] if out else
+                   "exit " + str(res.returncode) + " (no output — run it directly: " + " ".join(cmd) + ")")
+            print(f"ERROR  {r['path']} — {why}")
+    # A copy that upgraded but was left broken is its OWN category: it is not ok (the
+    # KB needs a fix), not failed (the swap worked, a retry would not help), and not
+    # skipped (nothing refused). Folding it into `ok` is what made a broken fleet report
+    # itself green, so it is counted separately, printed with its fix list, and it fails
+    # the run: a fleet that finished with a broken member has NOT finished.
+    if broken_out:
+        for r, v, why, out in broken_out:
+            print(f"\nBROKEN {r['path']} — {why}")
+            for line in out.splitlines():
+                s = line.strip()
+                if s.startswith("post-upgrade:") or s.startswith("remedies:") \
+                        or s.startswith("after fixing:") or re.match(r"^\d+\. ", s):
+                    print(f"        {s}")
+        print(f"\ndispatch: {ok} ok, {len(broken_out)} upgraded but BROKEN, "
+              f"{skipped} skipped (local patch), {failed} failed")
+        die(f"{len(broken_out)} copy/copies upgraded but left broken — "
+            f"`genome fleet lint` shows them, fix each then re-run", ERR)
+    print(f"\ndispatch: {ok} ok, {skipped} skipped (local patch), {failed} failed")
+    if failed:
+        die(f"{failed} copy/copies failed to upgrade", ERR)
+
+
+def _child_broken(out: str) -> str:
+    """A child upgrade's own post-upgrade verdict, or '' when the child reported none.
+
+    The child prints `post-upgrade: <N> error(s), <M> warning(s) to fix in this KB` after
+    it swaps. Errors there are the new CLI saying this KB is now wrong, which is the one
+    signal a dispatcher cannot see in the exit code: the swap succeeded and the operator
+    still has work to do.
+
+    Only ERRORS count. Warnings are advice about prose this release found, and an estate
+    of 77 KBs carries 100 of them by design — treating them as breakage would fail every
+    run for the normal state of the world, which is how a gate gets disabled.
+
+    Returns the reason as a phrase for the line, so the dispatcher's report names what
+    is wrong instead of just counting it."""
+    for ln in out.splitlines():
+        s = ln.strip()
+        if not s.startswith("post-upgrade:"):
+            continue
+        m = re.search(r"(\d+)\s+error", s)
+        if m and int(m.group(1)) > 0:
+            return s.replace("post-upgrade:", "").strip()
+    return ""
+
+
+def cmd_installs(args) -> None:
+    """installs: list | verify | register | scan — the machine's genome installs, one manifest."""
+    if args.installs_cmd == "upgrade":
+        _dispatch_upgrade(load_installs()["installs"], getattr(args, "apply", False),
+                         getattr(args, "roots", None))
+        return
+    if args.installs_cmd == "list":
+        data = load_installs()
+        rows = data["installs"]
+        if not rows:
+            print(f"no installs registered — install.sh registers them, or `genome installs register <kind> <path>`")
+            return
+        for r in rows:
+            print(f"{r['kind']:8} {r['path']}")
+            print(f"         version {_version_of(Path(r['path']))} · registered {r.get('registered', '?')}"
+                  + (f" · {r['note']}" if r.get("note") else ""))
+        return
+    if args.installs_cmd == "register":
+        kind = args.kind
+        raw = Path(args.path).expanduser()
+        # Record the path AS GIVEN (not resolved): a bin entry is the symlink the
+        # operator manages, and resolving it would point the registry inside a skills
+        # root that install.sh updates separately. _version_of reads through the link.
+        path = str(raw) if raw.is_absolute() else str(raw.resolve())
+        if kind not in ("skill", "bin", "vendored", "kb"):
+            die(f"kind must be skill | bin | vendored | kb (got {kind})", ERR)
+        data = load_installs()
+        rows = [r for r in data["installs"] if r["path"] != path]
+        rows.append({"kind": kind, "path": path,
+                     "version": _version_of(Path(path)), "registered": today_iso(),
+                     "note": args.note or ""})
+        data["installs"] = rows
+        save_installs(data)
+        print(f"registered: {kind} {path} (version {_version_of(Path(path))})")
+        return
+    if args.installs_cmd == "unregister":
+        # The registry had no way to forget, so a path that no longer exists stayed
+        # listed forever: measured 2026-10-30, `holon-personal` (and its nested
+        # `holon-personal/holon`) were still registered as kb rows although the
+        # directory is gone, and every upgrade dry run counted them as targets. A
+        # registry that cannot forget reports a fleet size that is too high, which is
+        # the same class of lie as an empty registry reporting green.
+        cand = getattr(args, "kind", None)
+        # The path is the FIRST positional, but `installs` shares its positionals
+        # with `register` (kind, then path), so `unregister <path>` puts the path in
+        # `kind` and leaves `path` None. Accept either: the four real kinds are
+        # refused so a typo like `unregister kb` says so instead of hunting for a
+        # repo called "kb".
+        if not args.path and cand and cand not in ("skill", "bin", "vendored", "kb"):
+            args.path, cand = cand, None
+        if not args.path:
+            die("unregister needs the path: `genome installs unregister <path>` "
+                "(or `installs list` to see them)", ERR)
+        raw = Path(args.path).expanduser()
+        data = load_installs()
+        rows = data["installs"]
+        # Exact path first. A NAME match is offered only when it is unambiguous:
+        # `holon` and `project-genome` each resolve to several rows (the four skill
+        # roots), and a name match there would drop rows the operator never named.
+        hit = [r for r in rows if r["path"] == str(raw)
+               or r["path"] == str(raw.resolve())]
+        if not hit:
+            by_name = [r for r in rows if Path(r["path"]).name == raw.name]
+            if len(by_name) > 1:
+                die(f"'{raw.name}' matches {len(by_name)} registered installs — "
+                    "pass one in full: " + ", ".join(r["path"] for r in by_name), ERR)
+            hit = by_name
+        if not hit:
+            print(f"no registered install matches {raw} — nothing to unregister")
+            return
+        gone = [r["path"] for r in hit]
+        data["installs"] = [r for r in rows if r not in hit]
+        save_installs(data)
+        for p in gone:
+            print(f"unregistered: {p}")
+        print(f"{len(gone)} row(s) removed")
+        return
+    if args.installs_cmd == "verify":
+        data = load_installs()
+        rows = data["installs"]
+        # An EMPTY registry is not a pass: on a fresh machine nothing has proven
+        # itself yet, and a green line here is exactly the silent failure this
+        # registry exists to catch. Say nothing-tested and exit 2, so a new
+        # agent or a post-install gate cannot read "0 installs" as healthy.
+        if not rows:
+            die("no installs registered — this machine has proven nothing: run install.sh "
+                "(it registers everything it creates), or `genome installs scan`", ERR)
+        if getattr(args, "against_shipped", False):
+            _verify_against_shipped(rows)
+            return
+        stale, broken = [], []
+        for r in rows:
+            p = Path(r["path"])
+            v = _version_of(p)
+            if v == "missing":
+                broken.append((r, v))
+            elif v == "none":
+                # a KB with no local CLI: present and legitimate, nothing to compare
+                continue
+            elif r.get("version") and r["version"] != "?" and v != r["version"]:
+                stale.append((r, v))
+        for r, v in broken:
+            print(f"MISSING {r['kind']} {r['path']} (was version {r.get('version', '?')})")
+        for r, v in stale:
+            print(f"STALE   {r['kind']} {r['path']} — manifest says {r['version']}, on disk {v}")
+        if not broken and not stale:
+            print(f"verify: all {len(rows)} registered install(s) present, versions unchanged")
+            return
+        die(f"{len(broken)} missing, {len(stale)} changed since registration", ERR)
+    if args.installs_cmd == "scan":
+        # Find installs the manifest does not know about. Skills roots come from the
+        # harness conventions install.sh probes; bins from PATH; vendored copies by
+        # walking parents is out of scope — a machine's repos are too many to sweep.
+        known = {r["path"] for r in load_installs()["installs"]}
+        # every registered path's resolution too: a bin LINK and the script it points at
+        # are the same install recorded two ways
+        resolved_known = {k for r in load_installs()["installs"]
+                          for k in (r["path"], str(_script_of(Path(r["path"])).resolve()))}
+        found = []
+        # An ACTIVATED GENOME sweep: a directory holding genome.toml (or the legacy
+        # kb.toml) is a knowledge base, whether or not it vendors a CLI copy. Walking
+        # a root for those is how a repo that has no scripts/genome — a meta-root, a
+        # nested KB that defers to its parent — still reaches the registry, and it is
+        # the sweep that finds KBs nobody registered by hand.
+        for root in (getattr(args, "roots", None) or []):
+            rp = Path(root).expanduser().resolve()
+            if not rp.is_dir():
+                die(f"scan root is not a directory: {rp}", ERR)
+            for cand in sorted(rp.rglob("genome.toml")) + sorted(rp.rglob("kb.toml")):
+                d = cand.parent
+                if not any(x in d.parts for x in (".git", "node_modules", "target", ".venv", "venv", "__pycache__")):
+                    if str(d) not in known:
+                        found.append(("kb", str(d)))
+        for root in ("~/.agents/skills/project-genome", "~/.claude/skills/project-genome",
+                     "~/.operant/skills/project-genome", "~/.local/share/agents/skills/project-genome",
+                     "~/Library/Application Support/agents/skills/project-genome"):
+            p = Path(root).expanduser()
+            if p.is_dir() and str(p.resolve()) not in known:
+                found.append(("skill", str(p.resolve())))
+        for d in os.environ.get("PATH", "").split(os.pathsep):
+            b = Path(d).expanduser() / "genome"
+            # Three ways this bin can be accounted for, any one of which silences scan:
+            # (1) its own path was registered (a bin entry records the link as given);
+            # (2) its RESOLUTION is a registered path or a registered root's script
+            #     (a link into an already-tracked skills root is the same install);
+            # (3) nothing above — then it is a real unregistered install.
+            try:
+                bres = str(b.resolve())
+            except OSError:
+                bres = ""
+            if b.exists() and str(b) not in resolved_known and bres not in resolved_known:
+                found.append(("bin", str(b)))
+        if not found:
+            print("scan: no unregistered installs found")
+            return
+        for kind, p in found:
+            print(f"unregistered {kind} {p} — `genome installs register {kind} {p}`")
+        die(f"{len(found)} unregistered install(s) — register them so upgrades reach them", ERR)
+
+
+def today_iso() -> str:
+    import datetime
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M")
+# ---------------------------------------------------------------- the KB registry view
+
+# The install registry (16b) tracks WHERE the CLI is installed, so an upgrade reaches
+# every copy. This module adds the other half: WHERE THE KNOWLEDGE BASES ARE, so a
+# genome in any working directory can reach any KB on the machine.
+#
+# Two questions drove it:
+#   1. "which KBs exist?" — the install registry only knew the repos that VENDOR the
+#      CLI, and every activated genome is a KB whether or not it vendors a copy. A KB
+#      with no local CLI (the meta-root, a nested KB that defers to its parent) was
+#      invisible, and so was a repo that vendors at bin/genome instead of scripts/genome.
+#   2. "can I reach them?" — genome resolves its config by walking UP from the cwd, so
+#      from an unrelated directory there is no genome to run against another repo's KB.
+#      A registry of KB paths turns "the KB you want" into an addressable target.
+#
+# The registry manifest is the single source of truth: `genome installs register kb
+# <path>` writes a row, `genome kb list` reads them, `genome kb lint` walks them.
+# Nothing here writes into a peer repo — it reads their configs and their lint.
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+def kb_rows() -> list[dict]:
+    """Every registry row that names an activated knowledge base.
+
+    A row is a KB when its directory holds genome.toml or the legacy kb.toml. The 78
+    vendored CLI copies are ALSO knowledge bases (each carries a .genome/ state dir),
+    so they are included here — that is what makes 'lint every KB' reach the whole
+    estate rather than only the repos that happen to lack a local CLI."""
+    data = load_installs()
+    out = []
+    for r in data["installs"]:
+        p = Path(r["path"])
+        if not p.is_dir():
+            continue
+        if (p / "genome.toml").is_file() or (p / "kb.toml").is_file():
+            out.append(r)
+    return out
+
+
+def _current_release() -> str:
+    """The release a KB is measured against: max(running CLI, registered floor).
+
+    The same rule `_dispatch_upgrade` uses, re-derived rather than imported so this
+    module does not reach into the dispatcher's scope. It is the answer to "behind
+    what?", and answering it with any single root would reintroduce the defect the
+    dispatch already fixed: one lagging root pinning the whole fleet's definition of
+    current. A registry with no skill/bin row falls back to the running CLI."""
+    skill_bin = [r for r in load_installs()["installs"] if r.get("kind") in ("skill", "bin")]
+    floor = max((_version_of(Path(r["path"])) for r in skill_bin), key=_version_key, default="-")
+    me = _file_version(Path(__file__).read_text())
+    return me if not floor or _version_key(me) >= _version_key(floor) else floor
+
+
+def _kb_label(path: Path, root: Path | None = None) -> str:
+    """A KB's short name, disambiguated when two KBs share a basename.
+
+    Two 'holon' KBs exist on this machine (holon/ and holon-personal/holon/), and a
+    name that silently picks one is the kind of ambiguity that makes an agent act on
+    the wrong KB. A collision gets the path relative to the COMMON ROOT of the
+    colliding KBs — relative to the parent of one of them, the nested KB would still
+    read as plain 'holon'."""
+    name = path.name
+    same = [Path(r["path"]) for r in kb_rows() if Path(r["path"]).name == name]
+    if len(same) <= 1:
+        return name
+    # the deepest common ancestor of the colliding KBs: the root both share
+    common = Path(os.path.commonpath([str(p) for p in same]))
+    try:
+        return str(path.relative_to(common))
+    except ValueError:
+        return str(path)
+
+
+def resolve_kb(target: str) -> Path:
+    """Find the KB an operator means by name or path, from ANY working directory.
+
+    A path that exists wins (it is unambiguous). Otherwise the name is matched against
+    every registered KB: an exact path match, a path suffix match, then a basename
+    match. An ambiguous basename is an error naming the candidates, never a guess."""
+    t = Path(target).expanduser()
+    if t.is_absolute() and t.is_dir():
+        return t.resolve()
+    rows = kb_rows()
+    if not rows:
+        die("no knowledge bases registered — `genome installs register kb <path>` "
+            "for each activated genome (the dirs holding genome.toml / kb.toml)", ERR)
+    # an exact path, as given or as a suffix of a registered path
+    exact = [r for r in rows if str(r["path"]) == str(t)]
+    if exact:
+        return Path(exact[0]["path"]).resolve()
+    suff = [r for r in rows if str(r["path"]).endswith(str(t))]
+    if len(suff) == 1:
+        return Path(suff[0]["path"]).resolve()
+    if len(suff) > 1:
+        die(f"'{target}' matches several knowledge bases: " +
+            ", ".join(sorted(r["path"] for r in suff)) + " — name one by full path", ERR)
+    base = [r for r in rows if Path(r["path"]).name == t.name]
+    if len(base) == 1:
+        return Path(base[0]["path"]).resolve()
+    if len(base) > 1:
+        die(f"'{target}' matches several knowledge bases: " +
+            ", ".join(sorted(r["path"] for r in base)) + " — name one by full path", ERR)
+    die(f"no knowledge base named '{target}' ({len(rows)} registered — `genome kb list`)", ERR)
+
+
+def kb_lint_one(path: Path) -> tuple[int, int, int, list[str]]:
+    """Lint one KB by running ITS OWN vendored CLI, so the check is the KB's own rules.
+
+    A KB that vendors no CLI cannot lint itself; that is reported as 'no CLI here'
+    rather than silently counted as clean — the same rule the empty-registry fix
+    follows: an unproven thing is not a green thing.
+
+    Every finding is returned, not the first three. Measured 2026-10-31, the estate
+    carries 100 warnings across 79 KBs and the cap turned that into 11 rows of bare
+    counts with no code and no remedy — the aggregation that hides both the finding
+    and its fix, which is the same defect the per-repo post-upgrade list was built to
+    stop. The caller counts; the codes are the point.
+
+    An older CLI that emits no `info` key reports 0, which is the right answer for it:
+    a KB at an older release has no info-level checks to run."""
+    script = _script_of(path)
+    if not script.is_file():
+        return (0, 0, 0, ["no CLI in this KB — nothing to lint with"])
+    try:
+        r = subprocess.run([sys.executable, str(script), "lint", "--json"],
+                           cwd=str(path), capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return (0, 0, 0, [f"lint failed to run: {e}"])
+    out = r.stdout.strip()
+    if not out:
+        return (0, 0, 0, [(r.stderr.strip().splitlines() or ["lint produced no output"])[-1]])
+    try:
+        j = json.loads(out)
+    except ValueError:
+        return (0, 0, 0, [f"lint output was not JSON: {out[:120]}"])
+    errs = int(j.get("errors", 0))
+    warns = int(j.get("warnings", 0))
+    infos = int(j.get("info", 0))
+    findings = [f"{f.get('code','?')} {f.get('text','')}" for f in j.get("findings", [])]
+    return (errs, warns, infos, findings)
+
+
+def _remedies_for(codes) -> str:
+    """The commands that clear each finding CODE, as one line.
+
+    The remedy is the point of a findings list: `E117` and `genome emit` are the same
+    sentence to a reader who already knows them, and an unknowing one has to go and
+    find out. This table is shared with `_post_upgrade_findings`, so a single KB's
+    post-upgrade list and the estate's aggregate name the same fix for the same code
+    instead of drifting into two vocabularies.
+
+    The W codes are here because they are what the estate actually carries. Measured
+    2026-10-31 across 77 KBs: 0 errors and 100 warnings in nine codes, every one of
+    them a W. A table that knew only the E codes therefore printed no remedies at all
+    on the first real fleet run, which is the same defect as printing no findings —
+    the answer withheld by the gap in the table rather than by a cap in the caller.
+    Each entry is the remedy the code's own lint text already names."""
+    seen = {c for c in codes if c and c[0] in "EW"}
+    fixes = []
+    if "E117" in seen:
+        fixes.append("`genome emit` (worklog zone is stale)")
+    if "E006" in seen:
+        fixes.append("`genome emit` (a generated zone was hand-edited or has broken markers)")
+    if "E104" in seen:
+        fixes.append("`genome outline` (outline zone is stale)")
+    if "E016" in seen:
+        fixes.append("move history out of the over-budget file (`genome archive`)")
+    if "E018" in seen:
+        fixes.append("`genome migrate` (an unmigrated schema reads every membership glob with the old dialect)")
+    if "W006" in seen:
+        fixes.append("two plans answer one question — keep one owner, retire the other")
+    if "W008" in seen:
+        fixes.append("delete the duplicated prose: the README links a page, it does not paraphrase it")
+    if "W009" in seen:
+        fixes.append("link the unreachable docs page from its README or a sibling page")
+    if "W010" in seen:
+        fixes.append("add a table of contents to the long file (or split it)")
+    if "W011" in seen:
+        fixes.append("`genome archive <plan> --section ...` for the superseded section")
+    if "W014" in seen:
+        fixes.append("re-ask the operator on the aged ask, or withdraw it")
+    if "W105" in seen:
+        fixes.append("point the citation at a live record, or retire the doc's claim")
+    if "W201" in seen:
+        fixes.append("class the figure in that section (measured | stated | estimated)")
+    if "W401" in seen:
+        fixes.append("`genome emit` refreshes the manual's covered code, or re-verify it")
+    if any(c.startswith("E") for c in seen):
+        fixes.append("`genome lint --code E --all` lists every error; `genome doctor` explains each code")
+    return "; ".join(fixes)
+
+
+def cmd_kb(args) -> None:
+    """kb: list | lint | show — the machine's knowledge bases, reachable from anywhere."""
+    cmd = getattr(args, "kb_cmd", "list")
+    if cmd == "list":
+        rows = kb_rows()
+        if not rows:
+            print("no knowledge bases registered — `genome installs register kb <path>`")
+            return
+        # THE VERSION IS THE POINT OF THIS LIST. A list of 79 names and paths answers
+        # "where are they" and cannot answer "which are behind", which is the question
+        # that starts every upgrade — measured 2026-10-31, that is exactly what it did,
+        # so the staleness had to be assembled by hand from another command. `-` is a
+        # KB with no local CLI: present and legitimate, nothing to compare against,
+        # and never printed as a broken install.
+        behind = 0
+        for r in sorted(rows, key=lambda r: r["path"]):
+            p = Path(r["path"])
+            v = _version_of(p)
+            if v not in ("none", "missing"):
+                ref = _current_release()
+                if _version_key(v) < _version_key(ref):
+                    print(f"{_kb_label(p):34} {r['path']:56} {v:14} behind {ref}")
+                    behind += 1
+                    continue
+            print(f"{_kb_label(p):34} {r['path']:56} {v:14} [{r.get('kind','?')}]")
+        print(f"\n{len(rows)} knowledge base(s) registered, {behind} behind the current release")
+        return
+    if cmd == "show":
+        p = resolve_kb(args.target)
+        cfg = find_cfg(p)
+        print(f"root: {cfg.root}")
+        print(f"modules: {', '.join(sorted(cfg.modules))}")
+        print(f"legacy kb.toml: {cfg.legacy}")
+        for role in sorted(cfg.paths):
+            print(f"  {role:10} {cfg.paths[role]}")
+        return
+    if cmd == "lint":
+        # --all: every registered KB. Without it: the named one (or the cwd's).
+        targets = []
+        if getattr(args, "all", False):
+            targets = [Path(r["path"]) for r in sorted(kb_rows(), key=lambda r: r["path"])]
+            if not targets:
+                die("no knowledge bases registered — nothing to lint", ERR)
+        elif getattr(args, "target", None):
+            targets = [resolve_kb(args.target)]
+        else:
+            targets = [find_cfg().root]
+        total_e = total_w = total_i = 0
+        failures = []
+        no_cli = []
+        codes: dict[str, list[str]] = {}  # code -> the KBs carrying it, for the remedy summary
+        for t in targets:
+            errs, warns, infos, findings = kb_lint_one(t)
+            total_e += errs
+            total_w += warns
+            total_i += infos
+            label = _kb_label(t)
+            if findings and findings[0].startswith("no CLI"):
+                # a KB with no local CLI is UNLINTED, not clean: saying 'ok' here
+                # would read as a passing check that never ran
+                no_cli.append(label)
+                print(f"skip  {label:34} no CLI in this KB — nothing to lint with")
+                continue
+            status = "ok" if not errs and not findings else ("FAIL" if errs else "warn")
+            # an `info` finding does not change the status: it is a fact to see, and
+            # one KB reporting it must not make the estate read as failing
+            tail = f", {infos} info" if infos else ""
+            print(f"{status:5} {label:34} {errs} error(s), {warns} warning(s){tail}")
+            # EVERY finding, not the first three. Measured 2026-10-31, the cap hid the
+            # 4th and later ones and the codes with them, so a per-KB line was a count
+            # with no way to act on it — the same defect `_post_upgrade_findings` was
+            # written to stop, arriving through the aggregate. The remedy line per KB
+            # is what makes each row actionable instead of merely informative.
+            for f in findings:
+                print(f"        {f}")
+                codes.setdefault(f[:4], [])
+                if label not in codes[f[:4]]:
+                    codes[f[:4]].append(label)
+            if errs:
+                failures.append(label)
+        print(f"\nkb lint: {len(targets)} KB(s), {total_e} error(s), {total_w} warning(s)"
+              + (f", {total_i} info" if total_i else "")
+              + (f", {len(no_cli)} with no CLI to lint with" if no_cli else ""))
+        # THE REMEDY IS THE POINT. A numbered list of codes without the command that
+        # clears each one turns a lint into another thing to research, so the
+        # aggregate answer names the fix and the KBs it applies to. `remedies:` is the
+        # exact prefix `_post_upgrade_findings` prints, so a per-repo run and the estate
+        # run name the same command for the same code.
+        rem = _remedies_for(codes.keys())
+        if rem:
+            print(f"remedies: {rem}")
+            for code, kbs in sorted(codes.items()):
+                print(f"        {code} in {len(kbs)} KB(s): {', '.join(kbs[:12])}"
+                      + (f" (+{len(kbs) - 12} more)" if len(kbs) > 12 else ""))
+        if failures:
+            die(f"{len(failures)} KB(s) with errors: {', '.join(failures)}", ERR)
+        return
+    die(f"unknown kb subcommand {cmd}", ERR)
+
+
+def cmd_fleet(args) -> None:
+    """fleet: one surface for the whole job — what is behind, take it current, what to fix after.
+
+    The operator's ask, measured 2026-10-31: three commands answered three parts of
+    one job in three geometries, and joining them by path was the manual search this
+    replaces. "What is stale" was `installs verify --against-shipped` (a flat list with
+    no KB label), "take it current" was `installs upgrade` (the same list, a different
+    verb), "what must I fix" was `kb lint --all` (rows keyed by label, capped at three
+    findings with no remedy). The label came from `_kb_label()`, which only `kb` used,
+    so no single output could name a KB, its version, and its fixes together.
+
+    Nothing new is invented here: `list` reads the registry, `upgrade` calls the
+    dispatcher that already scopes and already dry-runs, `lint` reuses the per-KB
+    printer. The rule this obeys is the genome's own — one owner per question, so the
+    verb is a joining surface and not a second registry.
+
+    `genome fleet` alone is `list`: the glance that answers "which are behind", which
+    is the question every upgrade starts from."""
+    sub = getattr(args, "fleet_cmd", None) or "list"
+    if sub == "upgrade":
+        _dispatch_upgrade(load_installs()["installs"], getattr(args, "apply", False),
+                          getattr(args, "target", None) or getattr(args, "roots", None))
+        return
+    if sub == "lint":
+        # `fleet lint [names...]` is `kb lint --all` with an optional scope, so the
+        # printer, the counting, and the empty-registry gate have one owner. `target`
+        # names the scope and `all` asks for every KB; when both arrive the scope wins.
+        args.kb_cmd = "lint"
+        args.all = not bool(getattr(args, "target", None))
+        cmd_kb(args)
+        return
+    _fleet_list()
+
+
+def _fleet_list() -> None:
+    """Every registered install by label, version and status — one line per thing to act on.
+
+    A line is grouped by what the operator does about it: behind (upgradable), current,
+    a skills root or package install (the thing the fleet converges toward), and a KB
+    with no local CLI (present, legitimate, nothing to compare). The groups are the
+    answer to "what must I do", so the list ends with the counts rather than leaving
+    them to be summed by eye."""
+    rows = load_installs()["installs"]
+    if not rows:
+        die("no installs registered — this machine has proven nothing: run install.sh "
+            "(it registers everything it creates), or `genome installs scan`", ERR)
+    ref = _current_release()
+    behind, current, sources, no_cli = [], [], [], []
+    for r in sorted(rows, key=lambda r: (r.get("kind", ""), r["path"])):
+        p = Path(r["path"])
+        kind = r.get("kind", "?")
+        if kind in ("skill", "bin"):
+            sources.append((p, kind, _version_of(p)))
+            continue
+        v = _version_of(p)
+        if v in ("none", "missing"):
+            no_cli.append((p, _kb_label(p), v))
+        elif _version_key(v) < _version_key(ref):
+            behind.append((p, _kb_label(p), v))
+        else:
+            current.append((p, _kb_label(p), v))
+    print(f"fleet: {len(rows)} registered install(s) · current release {ref}")
+    if sources:
+        print(f"\n  sources ({len(sources)}) — what the fleet converges on")
+        for p, kind, v in sources:
+            print(f"    {kind:9} {v:14} {p}")
+    if behind:
+        print(f"\n  behind ({len(behind)}) — `genome fleet upgrade --roots <name>` takes one current")
+        for p, label, v in behind:
+            print(f"    {label:34} {v:14} {p}")
+    if current:
+        print(f"\n  current ({len(current)})")
+        for p, label, v in current:
+            print(f"    {label:34} {v:14} {p}")
+    if no_cli:
+        print(f"\n  no local CLI ({len(no_cli)}) — registered, nothing to compare")
+        for p, label, v in no_cli:
+            print(f"    {label:34} {v:14} {p}")
 # ---------------------------------------------------------------- agents commands
 
 def agent_id(args) -> str:
@@ -5375,8 +6942,74 @@ def apply_overrides(start: Path) -> None:
             return
 
 
+def installed_as_package() -> bool:
+    """True when this CLI is an INSTALLED package (pip/uv), not a repo's vendored copy.
+
+    A pip-installed genome lives in site-packages and has no skills root beside it.
+    That changes two things: the "compare against the skill copy" logic has nothing
+    to compare against (this copy IS the shipped one), and `upgrade` has no file to
+    swap. Detecting it by the package's own directory is honest and cheap: the
+    wrapper puts the CLI at site-packages/project_genome/_genome.py."""
+    try:
+        p = Path(__file__).resolve()
+    except OSError:
+        return False
+    return p.parent.name == "project_genome" or (p.parent / "__init__.py").is_file()
+
+
 def skill_copy() -> Path:
-    return Path(os.environ.get("GENOME_SKILL", "~/.agents/skills/project-genome/scripts/genome")).expanduser()
+    """The 'shipped' copy this repo's copy is compared against.
+
+    For a vendored copy: the skills root's genome (what install.sh keeps current).
+    For an INSTALLED package: the running script itself — there is no separate
+    shipped copy, so comparing against itself is the honest answer ('up to date')
+    rather than a failure about a file that does not exist.
+
+    The probe is every skills root on the machine, not one. Measured 2026-10-30:
+    `~/.agents`, `~/.claude`, `~/.zcode` and `~/.codex` each held a real 4.8 MB copy
+    at four distinct inodes, and a hardcoded `~/.agents/...` answer meant a fleet
+    whose `.agents` root lagged upgraded to the LAGGING copy — the bootstrap problem
+    that let a fleet dispatched at `2026.10.30-23` converge on `-22` and stop. The
+    probe takes the newest of what exists, so one root lagging cannot pin the fleet,
+    and a root that is a symlink into another resolves to the same inode either way.
+
+    It also counts the kernel repo's working tree, which is where the operator
+    develops: measured 2026-10-30 the kernel's `scripts/genome` was at
+    `2026.10.30-23` while every skills root was still at `-22`, and the dispatch
+    handed each vendored CLI a `-22` source — which is exactly the convergence
+    failure it exists to prevent. The kernel is a plain candidate, scored on merit:
+    it wins on a development day, and an older checkout of it loses to the roots."""
+    env = os.environ.get("GENOME_SKILL")
+    if env:
+        return Path(env).expanduser()
+    if installed_as_package():
+        return Path(__file__).resolve()
+    cands = [
+        Path("~/.agents/skills/project-genome/scripts/genome").expanduser(),
+        Path("~/.claude/skills/project-genome/scripts/genome").expanduser(),
+        Path("~/.zcode/skills/project-genome/scripts/genome").expanduser(),
+        Path("~/.codex/skills/project-genome/scripts/genome").expanduser(),
+        # The kernel repo's working tree, last by design but scored on merit: on a
+        # development day it is the newest file on the machine, and every skills root
+        # (which install.sh only refreshes at publish time) is one release behind it.
+        Path(__file__).resolve(),
+    ]
+    best, best_v = None, "-"
+    for c in cands:
+        if not c.is_file():
+            continue
+        v = _file_version(c.read_text())
+        if best is None or _version_key(v) > _version_key(best_v):
+            best, best_v = c, v
+    if best is not None:
+        return best
+    return Path("~/.agents/skills/project-genome/scripts/genome").expanduser()
+
+
+def _file_version(text: str) -> str:
+    """The VERSION in a genome script's text, or '-' when it carries none."""
+    m = re.search(r'^VERSION = "([^"]+)"', text, re.M)
+    return m.group(1) if m else "-"
 
 
 def file_version(text: str) -> str:
@@ -5384,17 +7017,126 @@ def file_version(text: str) -> str:
     return m.group(1) if m else "?"
 
 
+def _package_reference() -> Path | None:
+    """The release an INSTALLED package should be measured against, or None when there is none.
+
+    An installed package is the shipped copy of its install, so comparing it against
+    itself can only ever print "up to date" — measured 2026-10-31, the genome on PATH
+    said exactly that while sitting six releases behind the kernel, so no release was
+    discoverable from the one command whose job is to say so. The comparison is still
+    useful, but the reference has to come from OUTSIDE the package.
+
+    Those roots are probed directly rather than through `skill_copy()`, which returns
+    the running file when it detects an installed package — the very answer that
+    produced the false all-clear. Two sources are compared, not one, because the honest
+    definition of "current" is what the operator would converge on:
+
+      * the newest skills root, refreshed at publish time;
+      * the kernel checkout's working tree, which is ahead of the roots on exactly
+        the days a package goes stale. Measured 2026-10-31: the running kernel was
+        `-30`, the roots `-22`, and a package at `-23` is behind BOTH definitions
+        of current by a different amount — so naming only the root understates it.
+
+    `GENOME_SKILL` still wins outright, because an operator who names a reference has
+    named it."""
+    env = os.environ.get("GENOME_SKILL")
+    if env:
+        p = Path(env).expanduser()
+        return p if p.is_file() else None
+    cands = [
+        Path("~/.agents/skills/project-genome/scripts/genome").expanduser(),
+        Path("~/.claude/skills/project-genome/scripts/genome").expanduser(),
+        Path("~/.zcode/skills/project-genome/scripts/genome").expanduser(),
+        Path("~/.codex/skills/project-genome/scripts/genome").expanduser(),
+    ]
+    # The kernel checkout: where the operator develops, so it is ahead of the roots on
+    # exactly the days a package goes stale. Probed from the RUNNING FILE's own tree —
+    # a vendored copy sits in scripts/genome beside src/NN_*.py — and kept as a plain
+    # candidate rather than a winner, because on the neutral cwd where a package run
+    # happens most, walking up from the cwd finds nothing. Measured 2026-10-31: an
+    # earlier registry-row probe that asked only for "AGENTS.md" matched
+    # `saas/lifeos-bot` (an AGENTS.md with no src/), so the package was measured
+    # against a `-29` peer instead of the release it would actually converge on.
+    for base in (Path(__file__).resolve().parent, Path.cwd()):
+        for up in (base, *base.parents):
+            if (up / "AGENTS.md").is_file() and any(up.glob("src/[0-9][0-9]*_*.py")):
+                cands.append(up / "scripts" / "genome")
+                break
+    # The registry's vendored rows too, so a machine whose kernel checkout sits
+    # outside both the running file's tree and the cwd still reports the newest
+    # installed genome rather than only the skills roots.
+    for r in load_installs()["installs"]:
+        if r.get("kind") != "vendored":
+            continue
+        p = Path(r["path"]) / "scripts" / "genome"
+        if p.is_file() and _file_version(p.read_text(errors="replace")) != "-":
+            cands.append(p)
+    best, best_v = None, "-"
+    for c in cands:
+        if not c.is_file():
+            continue
+        v = _file_version(c.read_text())
+        if best is None or _version_key(v) > _version_key(best_v):
+            best, best_v = c, v
+    return best
+
+
+def _package_upgrade(me: Path) -> None:
+    """Report an installed package's staleness against what it would converge on.
+
+    `skill_copy()` returns the running file when it detects an install, so the ordinary
+    comparison path compares the package against itself and can only print "up to
+    date" — that is the lie the operator must never see, and the genome on PATH was
+    printing it six releases deep. The reference is probed outside the package
+    (skills roots and the kernel checkout), and the answer names the reinstall command
+    that actually closes it, because there is no file for an installed package to swap.
+
+    Never exits non-zero: the package is a working tool, and a gate failure here would
+    tell a caller the machine is broken when it is simply one release behind."""
+    ref = _package_reference()
+    mine = _file_version(me.read_text())
+    if ref is None:
+        print(f"genome {mine}: up to date — installed as a package, and no skills root on this "
+              f"machine to compare against; reinstall to move versions")
+        return
+    want = _file_version(ref.read_text())
+    if _version_key(mine) < _version_key(want):
+        print(f"genome {mine}: BEHIND — this machine is at {want}")
+        print(f"      {ref}")
+        print(f"      this package is the genome on PATH; move it with "
+              f"`uv tool install --force project-genome` (or "
+              f"`pip install --upgrade project-genome`)")
+        print(f"      then `genome fleet lint` shows what each KB needs fixed")
+        return
+    print(f"genome {mine}: up to date ({ref} is {want})")
+
+
 def cmd_upgrade(args) -> None:
     """Compare this repo's vendored CLI with the skill's copy; --apply swaps it in, keeping a backup and any local patch as a diff."""
     import difflib
+    me = Path(__file__).resolve()
+    # AN INSTALLED PACKAGE IS MEASURED AGAINST WHAT IT WOULD CONVERGE ON, NOT ITSELF,
+    # AND THE CHECK RUNS BEFORE find_cfg(). `skill_copy()` returns the running file when
+    # it is an install, so `upgrade` compared the file against itself and could only
+    # print "up to date" — the genome on PATH said that while six releases behind the
+    # kernel. Ordering, not just comparison, was the defect: from a neutral cwd the
+    # command died in find_cfg with "no genome.toml upward of cwd" before any staleness
+    # check ran, so the one command that reports the package's version answered a
+    # different question entirely unless the operator happened to be inside a KB.
+    if installed_as_package():
+        _package_upgrade(me)
+        return
     cfg = find_cfg()
     new = skill_copy()
-    me = Path(__file__).resolve()
     if not new.is_file():
         die(f"no skill copy at {new} (set GENOME_SKILL)")
     mine_t, new_t = me.read_text(), new.read_text()
     if mine_t == new_t:
-        print(f"genome {VERSION}: up to date")
+        # Say WHAT was compared. A repo whose vendored copy has drifted loses its own
+        # CLI as a reference only when the skill copy is the same file, and calling that
+        # "up to date" without naming the file leaves the operator unable to tell which
+        # of the two happened.
+        print(f"genome {VERSION}: up to date ({cfg.rel(new)} is byte-identical to this copy)")
         return
     rel = cfg.rel(me)
     print(f"{rel}: {file_version(mine_t)} → {file_version(new_t)}")
@@ -5427,6 +7169,45 @@ def cmd_upgrade(args) -> None:
     me.chmod(0o755)
     print(f"upgraded {rel} to {file_version(new_t)} (backup: .genome/genome.pre-upgrade)")
     subprocess.run([sys.executable, str(me), "migrate"], cwd=cfg.root)  # the new code runs its own config migrations
+    _post_upgrade_findings(cfg)
+
+
+def _post_upgrade_findings(cfg) -> None:
+    """Lint the repo that was just upgraded and print a numbered fix list.
+
+    An upgrade that ends on "upgraded X (backup: ...)" has answered the wrong
+    question. The operator does not want to know the file was replaced; they want to
+    know what is now broken in THIS repo and what to do about each item. Measured
+    2026-10-30: a KB eleven releases behind (`2026.10.27-13` against `-23`) carries
+    schema drift, and the run reported success — the errors were three
+    `genome migrate`-shaped commands away and nobody printed them.
+
+    This runs the new CLI's own lint in-process, so no import or subprocess is
+    needed, and prints each finding with its remedy. It never fails the upgrade:
+    the swap already happened, and exiting non-zero afterwards would tell the
+    dispatcher the upgrade failed when it did not."""
+    try:
+        found = run_lint(cfg)
+    except Exception as e:  # a lint crash must not undo or misreport an upgrade
+        print(f"note: post-upgrade lint could not run ({e}) — `genome lint` to check manually")
+        return
+    if not found:
+        print(f"lint: clean [{', '.join(sorted(cfg.modules))}] — nothing to fix after the upgrade")
+        return
+    errs = [f for f in found if f.startswith("E")]
+    warn = [f for f in found if f[0] != "E"]
+    print(f"\npost-upgrade: {len(errs)} error(s), {len(warn)} warning(s) to fix in this KB")
+    for i, f in enumerate(sorted(errs) + sorted(warn), 1):
+        print(f"{i:>3}. {f}")
+    # THE REMEDY IS THE POINT, and `_remedies_for` is its ONE OWNER: the same table the
+    # estate aggregate prints, so a per-repo run and a fleet run name the same command
+    # for the same code. Keeping two tables here is how the two would drift into two
+    # vocabularies and leave an operator guessing which is authoritative.
+    rem = _remedies_for({f[:4] for f in found})
+    if rem:
+        print(f"remedies: {rem}")
+    if errs:
+        print("after fixing: `genome close` re-checks everything above")
 
 
 def cmd_migrate(args) -> None:
@@ -6254,6 +8035,29 @@ def main() -> None:
     s.add_argument("--reason"); s.add_argument("--note")
     s.add_argument("--at", help="freeze the spec as committed at this ref (backfilling a pre-registration)")
     add("secrets", cmd_secrets, "scan staged+unstaged diffs for configured secret values")
+
+    s = add("installs", cmd_installs, "the machine's genome installs: list | verify | register | unregister | scan | upgrade")
+    s.add_argument("installs_cmd", choices=["list", "verify", "register", "unregister", "scan", "upgrade"])
+    s.add_argument("kind", nargs="?", help="register: skill | bin | vendored | kb")
+    s.add_argument("path", nargs="?", help="register: the install path (absolute or ~); unregister: the row to forget")
+    s.add_argument("--note")
+    s.add_argument("--apply", action="store_true", help="upgrade: actually perform the upgrades (default: dry run)")
+    s.add_argument("--against-shipped", action="store_true", dest="against_shipped",
+                   help="verify: compare every install against the freshest skill/bin copy, not against its own registration")
+    s.add_argument("--roots", nargs="*", default=None,
+                   help="scan: directories to sweep for activated genomes (genome.toml / kb.toml) the manifest does not know; "
+                        "upgrade: scope the dispatch to these installed names or paths")
+
+    s = add("kb", cmd_kb, "the machine's knowledge bases: list | show | lint (reachable from anywhere)")
+    s.add_argument("kb_cmd", choices=["list", "show", "lint"])
+    s.add_argument("target", nargs="?", help="show/lint: a KB name or path (omit for the cwd's KB)")
+    s.add_argument("--all", action="store_true", help="lint: every registered KB")
+
+    s = add("fleet", cmd_fleet, "every genomic KB in one view: list | upgrade | lint (dry run first)")
+    s.add_argument("fleet_cmd", nargs="?", default="list", choices=["list", "upgrade", "lint"])
+    s.add_argument("target", nargs="?", help="upgrade/lint: scope to these KB names or paths")
+    s.add_argument("--apply", action="store_true", help="upgrade: actually perform it (default: dry run)")
+    s.add_argument("--roots", nargs="*", default=None, help="upgrade: scope the dispatch to these names or paths")
 
     s = add("wf", cmd_wf, "workflow boards: new | add | list")
     s.add_argument("wf_cmd", choices=["new", "add", "list"]); s.add_argument("name", nargs="?")

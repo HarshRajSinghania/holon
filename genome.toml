@@ -9,7 +9,7 @@
 # legitimately-elsewhere, never as missing.
 [genome]
 schema_version = 2
-modules = ["core", "records", "agents"]   # the legacy kb.toml set, unchanged
+modules = ["core", "records", "agents", "integrity"]   # the legacy kb.toml set + integrity
 
 [core]
 pointer_ignore = "BRIEF.md holon.toml INDEX.md"   # AGENTS.md path refs that live in $HOLON_HOME or are referenced by bare name inside their own row, not in this repo
@@ -47,6 +47,32 @@ runbook = "PERSONAL.md"
 # facts (the Chair's channel, host paths, instance ids) live at
 # $HOLON_HOME/config/operator-context.md and are cited by role, never inlined;
 # the two-repo overlay split was deprecated 2026-10-27.
+
+# Holon is a Python distribution, so the app question is real here — and the honest
+# answer for THIS repo is that only ONE of the four phases is cheap enough to gate.
+# Measured 2026-11-03: `test` (48 modules, six past 120s, discovery >10min,
+# tests/test_adapters.py holds a real time.sleep(120)) and `lint` (the product's own
+# `holon lint --strict`) both exceed a 300s phase budget. So neither is declared — a gate
+# phase that cannot finish is not a gate phase, and a check that reports E651 for a
+# suite that is merely slow teaches the reader to ignore E651.
+#
+# The cycle is the sharp half of it: `holon lint --pack genome` shells out to
+# `scripts/genome lint`, which reads THIS file's `[app] lint` and shells back to holon.
+# Declaring one here turns one slow gate into two mutually-calling ones. CI
+# (.github/workflows/ci.yml) runs the full set; `genome lint --only integrity` answers
+# the cheap question and the info line names what it checked, so silence is not
+# mistaken for a green suite.
+[app]
+toolchain = "python"
+build = "python3 -m compileall -q holon"
+
+[docs]
+required = ["README.md", "AGENTS.md"]
+sections = { "AGENTS.md" = ["Verify a change"] }
+max_lines = 600
+
+[ops]
+dir_globs = ["holon", "tests", "docs"]
 
 [card]
 architecture = "AGENTS.md"

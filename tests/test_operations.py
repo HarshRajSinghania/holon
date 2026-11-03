@@ -125,6 +125,68 @@ class StepVocabulary(KernelCase):
                          "one list; the vocabulary is the only place")
         self.assertIn("branch_one", vocab.STEP_KINDS)
 
+    def test_a_step_kind_outside_the_vocabulary_is_refused(self):
+        """A step's `kind` is the one field the grade and the DAG read. Measured today: the
+        plan contract's `steps` is `F("text_or_list")`, whose list branch checks only that each
+        item is a str or a dict -- so `steps: [{"kind": "brnach_one"}]` validates clean and
+        `grading._complexity_floor` reads `kind == "agent"` (False) and
+        `startswith("branch")` (False), so an operation that escalates to a body on failure
+        reads as FREE. A typo in the one field that decides what work costs is the same defect
+        class as a wrong grade: the organization spends on a reading nobody made.
+
+        The contract is where it is refused (G7 1), so the guard goes through it: `validate`
+        RAISES EnvelopeError with the problems, it does not return a list -- a guard that
+        asserted on a return value proved nothing."""
+        from holon.core import contract, vocab
+
+        def problems(env):
+            """EnvelopeError carries the list on `.problems`; args[0] is the joined STRING,
+            and iterating a string yields characters -- the shape that made a passing guard
+            read as a failure for the wrong reason."""
+            try:
+                contract.validate("plan", env)
+                return []
+            except contract.EnvelopeError as e:
+                return list(e.problems)
+
+        bad = problems({"kind": "plan", "findings": "x", "steps": [
+            {"kind": "brnach_one", "command": "x"}]})
+        self.assertTrue(bad, f"a step kind outside {list(vocab.STEP_KINDS)} must be refused: "
+                           "the grade would silently read the escalation as free")
+        self.assertIn("brnach_one", " ".join(bad), "the refusal names the offending kind")
+        # the ordinary case still validates -- this is not a blanket refusal
+        good = problems({"kind": "plan", "findings": "x", "steps": [
+            {"kind": "branch_one", "command": "x"}]})
+        self.assertEqual(good, [], "a step kind the vocabulary carries must validate")
+
+    def test_a_steps_list_carries_the_shape_the_grade_reads(self):
+        """`depends_on` is not decoration: it is the edge the DAG materializes (G7 3), and
+        without a binding a step naming a step that does not exist is a graph that cannot run.
+        The contract refuses it at submit, so a dangling edge is never approved -- and a step's
+        command is what makes `kind: script` actually free, so a script step without one is a
+        script that cannot run."""
+        from holon.core import contract
+
+        def problems(env):
+            """EnvelopeError carries the list on `.problems`; args[0] is the joined STRING,
+            and iterating a string yields characters -- the shape that made a passing guard
+            read as a failure for the wrong reason."""
+            try:
+                contract.validate("plan", env)
+                return []
+            except contract.EnvelopeError as e:
+                return list(e.problems)
+
+        dangling = problems({"kind": "plan", "findings": "x", "steps": [
+            {"kind": "script", "command": "x", "depends_on": [3]}]})
+        self.assertTrue(dangling, "a step depending on a step that does not exist must be "
+                                 "refused, or the DAG is a graph that cannot run")
+        # the edge that DOES exist is the shape the DAG reads, and it validates
+        edge = problems({"kind": "plan", "findings": "x", "steps": [
+            {"kind": "script", "command": "x"},
+            {"kind": "branch_one", "command": "x", "depends_on": [0]}]})
+        self.assertEqual(edge, [], "a step depending on a step that exists must validate")
+
 
 class Rename(KernelCase):
     """The recurring-work noun is `operation`, agentic-os wide.

@@ -253,6 +253,60 @@ def _artifact_paths(env: "dict") -> "list[str]":
     return problems
 
 
+def _step_problems(path: str, steps: list) -> list[str]:
+    """A plan's `steps` list, checked where the grade and the DAG read it.
+
+    `vocab.STEP_KINDS` is the one list an operation's step kinds must come from -- it is the
+    vocabulary the grade prices (`_complexity_floor` reads `== "agent"` and
+    `startswith("branch")`) and the kind the DAG dispatches. Accepting anything else means the
+    organization declares a cost it never computed. `depends_on` is an EDGE into this same
+    list, so an index that does not exist is a graph that cannot run.
+
+    A step that is a bare string is a step with no declared kind, and it prices as free; that
+    is legitimate prose (`F("text_or_list")` accepts it, and historical plans carry it), so it
+    is left alone -- the guard refuses typos, not terseness.
+    """
+    problems: list[str] = []
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        kind = step.get("kind")
+        if kind is not None and kind not in vocab.STEP_KINDS:
+            problems.append(f"{path}[{i}].kind {kind!r} is not one of {list(vocab.STEP_KINDS)}")
+        for dep in step.get("depends_on") or []:
+            if not isinstance(dep, int) or isinstance(dep, bool) or not 0 <= dep < len(steps):
+                problems.append(f"{path}[{i}].depends_on names step {dep!r}, which is not a "
+                                 f"step in this list (0..{len(steps) - 1})")
+    return problems
+
+
+def _step_problems(path: str, steps: list) -> list[str]:
+    """A plan's `steps` list, checked where the grade and the DAG read it.
+
+    `vocab.STEP_KINDS` is the one list an operation's step kinds must come from -- it is the
+    vocabulary the grade prices (`_complexity_floor` reads `== "agent"` and
+    `startswith("branch")`) and the kind the DAG dispatches. Accepting anything else means the
+    organization declares a cost it never computed. `depends_on` is an EDGE into this same
+    list, so an index that does not exist is a graph that cannot run.
+
+    A step that is a bare string is a step with no declared kind, and it prices as free; that
+    is legitimate prose (`F("text_or_list")` accepts it, and historical plans carry it), so it
+    is left alone -- the guard refuses typos, not terseness.
+    """
+    problems: list[str] = []
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        kind = step.get("kind")
+        if kind is not None and kind not in vocab.STEP_KINDS:
+            problems.append(f"{path}[{i}].kind {kind!r} is not one of {list(vocab.STEP_KINDS)}")
+        for dep in step.get("depends_on") or []:
+            if not isinstance(dep, int) or isinstance(dep, bool) or not 0 <= dep < len(steps):
+                problems.append(f"{path}[{i}].depends_on names step {dep!r}, which is not a "
+                                 f"step in this list (0..{len(steps) - 1})")
+    return problems
+
+
 def validate(stage: str, env: Any) -> dict:
     if stage not in SPECS:
         raise EnvelopeError([f"unknown stage {stage!r}"])
@@ -267,6 +321,8 @@ def validate(stage: str, env: Any) -> dict:
     problems: list[str] = []
     _fields("", env, {**variants[key], **COMMON}, problems)
     problems.extend(_artifact_paths(env))
+    if isinstance(env.get("steps"), list):
+        problems.extend(_step_problems("steps", env["steps"]))
     if problems:
         raise EnvelopeError(problems)
     return env

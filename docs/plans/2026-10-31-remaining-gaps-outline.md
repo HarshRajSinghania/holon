@@ -29,6 +29,20 @@ measurement the re-audit below is compared against.
 **Total: 8 errors, 11 warnings** — the same error count as 2026-10-30 with a different
 composition, and every one of them is either the Chair's call or a one-command fix.
 
+**Re-audit, 2026-11-03** (measured read-only against the live home, two days later):
+
+| Check | then | now | Why it moved |
+|---|---|---|---|
+| heartbeat.stale | **new, 568 min** | **clean** | the clock is alive: two samples 120 s apart (1793718774 → 1793718894), stamp 7 s old at read time, doctor silent. G10 needs no kernel work. §2's *instrument* gap is still the honest finding — `heartbeat.stale` is a warning on the same heartbeat it names — but the dead clock it was written about has recovered. |
+| skills.export_stale | **10 files** | **clean** | G12 closed: the export now routes the write through the boundary's runner as the agent user, verified live (11 skills, mode 664, only `$holon` substituted). |
+| isolation.reach | 2 paths | **2 paths** | G11 characterized, not closed: the derivation is right, the applied ACL is stale, and `apply --force` is the Chair's to run. The live cause is measured — the harness's own `chmod 700` resets the ACL mask, erasing the grant. |
+| strict lint | 0/0 | **0/0** | held. |
+
+One measurement trap recorded, because it flipped twice before settling: a 45-second
+observation window **cannot** decide this check. The cadence is two minutes and the threshold
+is six, so a sub-cadence sample reads "unchanged" and reports death on a healthy clock. A
+sampling window shorter than the cadence it judges is not an instrument for that question.
+
 ### The upgrade's own debt, measured before it is claimed as done
 
 The rename and the vocabulary landed. **The vocabulary has no reader.** Measured: `STEP_KINDS`

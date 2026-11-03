@@ -587,6 +587,52 @@ class Doctor(KernelCase):
         self.assertIn("isolation.off", dr.stdout + dr.stderr,
                         "the cold start says what is missing: agents run as the kernel's user")
 
+    def test_a_stamp_younger_than_the_threshold_is_not_stale(self):
+        """The liveness threshold nobody had tested, measured 2026-11-03 against the plan's
+        claim that the clock was dead 568 minutes. Two stamp samples on the live instance were
+        120 seconds apart while `doctor` said nothing — which is correct, and the reason this
+        guard exists is that nothing proved it.
+
+        A `heartbeat.stale` threshold is an arithmetic constant (`age_min > 6`) that decides
+        whether an entire organ is reported dead. It has no test in either direction, so a
+        threshold edited to 0.5 would report a dead heartbeat on a live clock every tick, and
+        one edited to 10**9 would report nothing on a dead one — and the `tests/test_kb` run
+        earlier the same day showed the suite does not catch a silently-wrong fixture in the
+        same file. Measured both directions: a stamp 2 minutes old is silent (one beat), and a
+        10-minute-old one reports — the live cadence is 2 minutes, so 2 minutes old is the
+        quietest a healthy clock can be and it must stay silent.
+        """
+        import time as _t
+        clock = self.k.home.root / ".clock"
+        clock.mkdir(parents=True, exist_ok=True)
+        stamp = clock / "last_tick"
+
+        def findings(age_min: float):
+            stamp.write_text(str(int(_t.time() - age_min * 60)))
+            return [f["check"] for f in doctor.run(self.k)]
+
+        self.assertNotIn("heartbeat.stale", findings(2),
+                         "one cadence (2 min) old is the quietest a healthy clock can be and "
+                         "must not be reported stale")
+        self.assertNotIn("heartbeat.stale", findings(5.9),
+                         "just inside the threshold is still healthy: the boundary must be a "
+                         "boundary, not a cliff that shifts with rounding")
+        self.assertIn("heartbeat.stale", findings(10),
+                       "well past the threshold must report, or a dead clock goes unnamed")
+
+    def test_an_unreadable_stamp_is_reported_not_ignored(self):
+        """The other half of the same check. A stamp holding prose, or no integer, is not
+        evidence of life — but a guard that treats an unreadable stamp as 'silent' is one that
+        can be silenced by anything that writes a garbage file, and the tick writes it
+        best-effort by contract (a tick that cannot stamp still did its work). So the check
+        reports the unreadable stamp rather than inferring health from it.
+        """
+        clock = self.k.home.root / ".clock"
+        clock.mkdir(parents=True, exist_ok=True)
+        (clock / "last_tick").write_text("not-a-timestamp")
+        self.assertIn("heartbeat.stale", [f["check"] for f in doctor.run(self.k)],
+                      "a stamp that holds no unix timestamp is reported, not assumed alive")
+
     def test_a_healthy_instance_is_clean_once_the_chair_key_exists(self):
         self.assertIn("security.auth", rules(doctor.run(self.k)))
         self.k.auth.init_chair_key()
@@ -1600,4 +1646,3 @@ class MarkdownTables(KernelCase):
                          "a citation names a .md file this repository does not carry: "
                          + "; ".join(f"{rel} (cited by {', '.join(sorted(set(srcs)))})"
                                      for rel, srcs in sorted(broken.items())))
-

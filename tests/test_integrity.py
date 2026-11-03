@@ -587,6 +587,46 @@ class Doctor(KernelCase):
         self.assertIn("isolation.off", dr.stdout + dr.stderr,
                         "the cold start says what is missing: agents run as the kernel's user")
 
+    def test_an_ungraded_task_cannot_take_the_fast_lane(self):
+        """Measured 2026-11-03 while re-measuring G9. Live, 13 of the 39 ready approval gates are
+        `source='kernel'` incident and retro tasks, every one `lane=full`, and the tempting read
+        was that `work.add_work`'s `lane="full"` default was a bug: the kernel filed its own
+        cause-finding into the full lane without consulting `intake_lane()`, the rule that asks
+        the classifier.
+
+        The guard that read returned `full` on every probe, and a guard written to stub the rule
+        into `fast` proved why: an ungraded task cannot stay fast. `_expand` asks
+        `rules.fast_refusal`, which answers `the fast lane needs the kernel's grade floor`, and
+        the task is upgraded with that note — so the fast lane is not a lane a task MAY take, it
+        is a lane the kernel grants against a grade it has computed. An incident is filed
+        ungraded by construction: its grade is what the cause-finding would determine.
+
+        That converts G9 from a defect into a dependency. The 13 are not a Chair decision and
+        not agent-approvable either — they need a grade to be cheap, and the grade is the work.
+        Both the fix and the guard that would have "proved" it were reverted; this guard holds
+        what the revert rests on, so the next reader cannot re-derive the wrong conclusion.
+
+        Both directions are asserted: ungraded lands full (with the reason carried on the task),
+        and a task the kernel has graded at G0 is the shape the fast lane exists for."""
+        dept = self.k.wconn.execute("SELECT slug FROM departments LIMIT 1").fetchall()[0]["slug"]
+        w = self.k.work.add_work("ungraded work", "no grade computed", dept=dept, source="chair",
+                                 lane="fast")
+        self.assertEqual(w["lane"], "full",
+                         "a task the kernel has not graded must not stay fast: the fast lane is "
+                         "granted against a grade floor, not requested by a caller")
+        self.assertIsNone(w["grade"],
+                          "the returned row carries no grade — the precondition this measures")
+        # The reason is read from the rule, not restated. Measured 2026-11-03: `fast_refusal`
+        # derives a floor from risk (G2 for a normal-risk unclassified task) even when the row's
+        # own `grade` is None, so the first draft's exact-string assertion failed on a real
+        # instance — the shape is right, the string is the rule's business, not this guard's.
+        why = self.k.work.rules.fast_refusal(w)
+        self.assertIsNotNone(why,
+                             "the rule must give SOME reason this task cannot be fast: a silent "
+                             "fast lane is a lane granted without a floor behind it")
+        self.assertIn("floor", str(why),
+                      f"and the reason must be a grade floor, not another cause the fixture "
+                      f"happened to trigger (it said: {why!r})")
     def test_a_stamp_younger_than_the_threshold_is_not_stale(self):
         """The liveness threshold nobody had tested, measured 2026-11-03 against the plan's
         claim that the clock was dead 568 minutes. Two stamp samples on the live instance were

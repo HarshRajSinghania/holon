@@ -22,24 +22,15 @@ which decisions the Chair has already made (do not re-open them), and what comes
 in the same commit as any change it describes. Hosts, ids and keys stay out of it (AGENTS.md).
 The emitted decision/regression registry is [`docs/RECORDS.md`](RECORDS.md) (`scripts/genome`).
 
-Last updated: 2026-10-24 (**the ventures import ran**: the Chair approved importing five venture pools as an
-operational migration, governed by *form follows function* — live functions under their live registry
-names, retired form skipped and named. Measured result on the live instance: **26 operation
-proposals across 3 new departments** — career-pipeline 11, freelance-agency 11, architectural-leads
-4 — every one **unapproved**; all but one land OFF (`starts_disabled`, G3 outside-reach — the one
-exception is dad-arch-materials-refresh, G2 inside-reach and judged, which the kernel starts on
-approval, so its approval alone lights it). The Chair approves per job and enables it. community-loo and credibility-funnel imported **nothing**: zero live functions
-(measured verdicts in the import manifest's `_not_imported`). The stock importer could not have
-done this — measured, it would have created 12 retired twins and skipped all 26 live functions
-behind the registry's renames — so a scratch script ran the function-first reconciliation through
-the kernel service API (`legacy_cron` on each ancestor protocol for provenance, the live registry
-name as the title, a succession note in each intent). Three lane refusals were resolved with
-recorded evidence, not overrides: `company-kb-regrade` and `dad-arch-strategist-daily` import as
-script lanes (the pool's own scripts are the function), `talent-followup-compound` with a recorded
-`--why` (no script exists; the function needs a body). Doctor after the import: **exactly the
-pre-existing baseline** — no new findings. Rollback:
-`~/holon/backups/pre-ventures-import-20261024`; tooling:
-`~/.jcode/scratch/ventures-import/` (scratch, deliberately not in the repo).) The 2026-10-20 block
+Last updated: 2026-11-03 (**the post-upgrade plan's nine gaps re-validated live**: G12's
+skills export confirmed correct — 11 skills, agent-owned mode 664, only the intended
+`$holon` → `${HOLON:-holon}` substitution in a raw diff; G11's mask-erasure cause confirmed
+unchanged on `~/.jcode` with probe and doctor naming the identical two paths, so
+`holon isolation apply` `--force` stays the Chair's ruling; G7's defect closed at the submit
+seam plus a second defect it exposed — `contract._step_problems` defined twice, the later
+binding winning and the earlier one dead text, fixed by deletion because the lost original is
+unrecoverable and no executor reads `depends_on`. Suite 933 tests, 3 failures + 17 errors
+against a 4 + 18 baseline; gate `lint --strict` 0/0.) The 2026-10-20 block
 below is left as written, because it says what was true then.
 
 ## 1. Where Holon sits
@@ -172,7 +163,7 @@ whose inputs changed (AGENTS.md).
   `holon-agent-01m4sf0wr27mgs9e1327aqxp1z` when `HOLON_HOME` resolves to the real instance;
   **(2)** `sudo sh /tmp/holon-isolation.sh` (root: the user and the runner unit);
   **(2.5)** write the `[isolation]` block the plan prints into `$HOLON_HOME/holon.toml`;
-  **(3)** `holon isolation apply --force` (29 setfacl commands); **(4)**
+  **(3)** `holon isolation apply` `--force` (29 setfacl commands); **(4)**
   `python3 install.py --systemd` (the tick and broker units, which nothing wrote before);
   **(5)** `holon doctor`. Separately: the tick unit still names a scratch home
   (`<a jcode-scratch tmp dir>`) rather than the live instance, and an undocumented
@@ -198,6 +189,21 @@ whose inputs changed (AGENTS.md).
   the block renders per posture, `api_pool`; R-01/R-05/R-06 already landed).
 
 ## 6. What is next
+
+> **2026-11-03, validation of the post-upgrade plan's nine gaps** — G12 (skills export) is
+> live-measured correct: 11 skills export, agent-owned at mode 664, fresh mtime, and a raw
+> diff shows only the intended `$holon` → `${HOLON:-holon}` substitution. G11's cause is
+> confirmed live and unchanged (`~/.jcode` carries `mask::---`, erasing every traversal
+> grant; both probe and doctor name the identical two paths) and its remedy,
+> `holon isolation apply` `--force`, is the Chair's to run — a hire into a masked tree spends budget on an
+> unreachable harness. G7's real defect was found and closed at the seam that rejects a plan
+> (`contract._step_problems`, which nothing called), and a second defect it exposed is now
+> fixed: the module carried that rule **twice**, so the later binding won and the earlier one
+> was dead text; a green suite could not see it because nothing reads the source for a rule
+> declared twice. The lost original is unrecoverable from any git object, and no executor
+> reads `depends_on` at all, so the honest fix was deletion over reconstruction. Suite 933
+> tests, 3 failures + 17 errors against a baseline of 4 + 18 at `4a7c8dd` — all 18 shared
+> failures are pre-existing, my tree adds none and fixes four. Gate: `lint --strict` 0/0.
 
 > **The execution order is `my-projects/docs/plans/2026-10-20-the-bridge.md`** (the
 > federation repo) — one plan for the whole A-side program: R the codebase repairs → M

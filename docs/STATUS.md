@@ -232,6 +232,25 @@ whose inputs changed (AGENTS.md).
 > fork where both branches claim 1811 as parent, not tampering. G14: no holon smoke gate
 > asserts the organism tree's state, and `test_the_boundary_lint_pack_catches_a_conflated_doc`
 > passes, so stack A's gates cannot silently report stack B.
+>
+> **Three of those "mutation-verified" claims did not survive a second mutation round, and all
+> three were closed on 2026-11-04.** The discipline that found them: mutate the RULE the
+> guard reads, not the assertion inside it, and treat a mutation that passes as a hole until
+> proven otherwise. **(1) E309:** the exemption was asserted on the TRACKED
+> `RECORDS_TPL.md`, and `check-ignore` answers "not ignored" for a tracked path whatever
+> the rules say — so that assertion could never fail, and with the exemption commented out
+> entirely it stayed green while a fresh clone LOST the override, which is the exact failure
+> the row exists to prevent. It now seeds the file into a scratch repo as an untracked path
+> and asks git there; both mutations (commenting it out, and replacing the negation with a
+> positive ignoring rule) now fail with `AssertionError: 0 != 1`. **(2) G11:** the ACL-mask
+> guard asserted `assertFalse(erased.endswith("x"))`, and a mask-erased entry ends in
+> `#effective:---`, which also fails to end with "x" — so rewriting `effective_bits` to
+> return the raw entry and ignore the mask left the guard green. It now asserts the bits
+> POSIX computed (`"---"`) and fails with `'--x\t#effective:---' != '---'`. **(3) G10:** the
+> stale branch asserted only that the CHECK was reported, never its severity, so downgrading
+> it from `error` to `warning` left all ten tests in its class green; it now asserts
+> `["error"]`. The rule for the next round: **a green guard is evidence of nothing until
+> something has been broken in front of it**, and the thing to break is what the guard reads.
 
 > **The execution order is `my-projects/docs/plans/2026-10-20-the-bridge.md`** (the
 > federation repo) — one plan for the whole A-side program: R the codebase repairs → M

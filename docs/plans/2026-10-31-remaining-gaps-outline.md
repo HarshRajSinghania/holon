@@ -74,7 +74,7 @@ complete and guarded); it is the next piece of work, and it is §1's G7.
 | G11 | `isolation.reach` names two paths the ACLs do not carry | live instance | one `apply --force` |
 | G12 | skills.export_stale, 10 files | live instance | one `skill export` |
 | G13 | audit.chain's one break at seq 1815 | live instance | the Chair's signed re-link |
-| G14 | the `career-pipeline` smoke gates test scripts in the organism tree | both stacks | law 10 — these are not A's to fix |
+| G14 | the `career-pipeline` smoke gates run scripts from another stack's tree | A's alarm surface | closed 2026-11-04 — the outline's "not A's to fix" read was wrong; see §6 |
 
 ## §2. G10 — the heartbeat died, and the instrument only noticed on the next run
 
@@ -180,11 +180,23 @@ with nothing to do.
 |---|---|---|
 | G12 | `holon skill export` again | the rename changed 5 library files; the adapter homes are 10 files behind. One command |
 | G13 | the 1815 re-link | the Chair's signed act. The walker works; the break is characterized; the repair is a deliberate edit to the audit trail |
-| G14 | three `career-pipeline` smoke gates | their scripts live in the organism tree (`gmail_ops.py`, `apply_job.py`, `forge`) and the agent user is denied there by design. Law 10: these are not A's to fix, and the finding is stack-B noise on A's doctor |
+| G14 | twelve `career-pipeline` smoke gates, not three | closed 2026-11-04. The outline's mechanism was measured false: the agent user reads those scripts with `rc=0` and every failing check reproduces for the **kernel** user identically, so it was never a permission. The finding was that the kernel graded a check with no concept of its provenance, so another system's dead path became A's `smoke.critical` and an incident that sat open from 2026-10-30. `Kernel._check_elsewhere` derives it from the department's own reach |
 
-G14 is the row most likely to be mis-read, so it is stated plainly: the three `smoke.critical`
-findings are **not** a reason to grant the agent user read reach into the organism tree. That
-would weld A to B against law 10. They are the correct consequence of the boundary working.
+The outline's G14 diagnosis was wrong in its mechanism, and the cost was real: it read as
+"the boundary is working" on an instance whose Chair's board carried a five-day-old open incident
+naming those very checks. Two things it got wrong, both measured rather than read:
+
+- **the count.** three `smoke.critical` findings were named; there are twelve checks whose
+  scripts live outside that department's declared reach, and the six that failed include three
+  the readability reading never saw.
+- **the cause.** "denied by design" was the wrong shape for every one of them. A check that
+  names a path that does not exist fails identically for the kernel user and the agent user,
+  which is a broken reference and this organization's own import, not a boundary working.
+
+What A owes is not a grant and not silence: a check about somewhere else is reported as a
+warning that names the reach it is outside, so the Chair can still see it and no incident opens
+for it. Law 10 is honoured by not welding the two stacks together — never by letting one stack's
+dead path consume the other's alarm surface.
 
 ## §7. Order of work
 

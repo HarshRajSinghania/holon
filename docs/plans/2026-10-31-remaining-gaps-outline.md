@@ -49,7 +49,7 @@ than from the table above):
 | Row | plan said | measured now | What it means |
 |---|---|---|---|
 | G8 | 7 active employees across 2 departments | **unchanged — and now a dependency, not a hire** | The blocker is not the hire. `schedule.nowake` reports 7 active employees with **no live wake schedule**, and the event trail names the actor: **both `wake` schedules were disabled by the Chair at 2026-10-30T18:48**, with no note. A hire into a clockless department spends the Chair's budget on a body nothing can fire. Arm the clock, then hire. |
-| G9 | 37 gates, all `lane=full`, "the Chair's approve/reject" | **39 gates across five departments; only 26 are G3 outside-reach** | The 13 that are not are `source='kernel'` incident and retro tasks. The kernel's `lane="full"` default is **not** the defect: an ungraded task cannot take the fast lane, because `_expand` consults `fast_refusal` and the fast lane is granted against a grade floor the kernel has computed — an incident is filed ungraded by construction, since its grade is what the cause-finding would determine. They are a dependency (a head for `executive`, or grade the intake), not a lane default to change. |
+| G9 | 37 gates, all `lane=full`, "the Chair's approve/reject" | **re-measured live 2026-11-04 (read-only, counted from the DB): 26 ready `approve` gates, all `lane=full`, all `source=kernel`, 25 at G3 and 1 at G2, across 3 departments — `career-pipeline` 11, `freelance-agency` 11, `architectural-leads` 4 — and all 26 with `approver=chair`. The earlier "39 across five departments" was wrong: the extra 13 are unstaffed research/retro *stages*, not approval gates, and `executive`/`tools` are not among them** | The kernel's `lane="full"` default is **not** the defect: an ungraded task cannot take the fast lane, because `_expand` consults `fast_refusal` and the fast lane is granted against a grade floor the kernel has computed — an incident is filed ungraded by construction, since its grade is what the cause-finding would determine. They are a dependency (a head for `executive`, or grade the intake), not a lane default to change. |
 
 Both rows were re-derived from the live DB, and G9's premise was wrong enough that a fix
 written against it had to be **reverted**: the guard written for that fix was a null test,
@@ -159,11 +159,12 @@ grade reflects it — one test crossing the seam with the other side's real arti
 
 Nothing is spending budget: the only enabled schedule is `0 6 * * *` recurring (script lane, no
 agent), both `*/15` wake schedules remain disabled by the Chair's instruction, and every one of
-the 37 gates is `lane=full`, which needs a head or the Chair.
+the 26 gates is `lane=full`, which needs a head or the Chair.
 
-**Decision 1 — G9:** approve selectively on objectives, reject on the rest. Every one of the 37
-is outside-reach and lands disabled anyway, so approving buys the record of intent rather than a
-firing loop. This is the Chair's to make.
+**Decision 1 — G9:** approve selectively on objectives, reject on the rest. Every one of the 26
+is `source=kernel` work the kernel itself filed (25 at G3, 1 at G2), so approving them approves
+the kernel's own cause-finding, and 25 of 26 are G3 — they land disabled on approval anyway, so
+approving buys the record of intent rather than a firing loop. This is the Chair's to make.
 
 **Decision 2 — G8:** one hire per surviving department. The 2026-10-26 lesson applies — the hire
 command must name a slot the department's own profile carries, or it refuses. Career Pipeline is
@@ -192,7 +193,7 @@ would weld A to B against law 10. They are the correct consequence of the bounda
 | 1 | G12 (skill export) | one command, zero tokens | me |
 | 2 | G11 (`apply --force`) | one command, the Chair's | Chair |
 | 3 | G10 (restart the clock organ) | one restart | Chair |
-| 4 | G9 (the 37 gates) | the Chair's approve/reject | Chair |
+| 4 | G9 (the 26 gates) | the Chair's approve/reject | Chair |
 | 5 | **G7 (operation steps)** | kernel: contract + writer + reader, tests first | me |
 | 6 | G8 (hire per department) | no tokens | me, after G9 |
 | 7 | G13 (the re-link) | the Chair's signed act | Chair |

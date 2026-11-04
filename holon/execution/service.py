@@ -2813,7 +2813,18 @@ class Kernel:
                 check = row["title"][len("Incident: doctor reports "):]
                 if check in failing:
                     continue
-                self.work._set(row["id"], "done", note=f"doctor reports {check} clean again")
+                # `actor="kernel"` is load-bearing. Without it `Work._set` falls back to
+                # `_event`'s default, which is `self.actor` -- and the heartbeat's Kernel is
+                # constructed with `actor=chair`, so every close the sweep made was recorded in
+                # the hash-chained trail as **the Chair's own act**. Measured live 2026-11-04:
+                # 7 closed doctor incidents, every one of them `by chair`, carrying this
+                # method's own note text ("doctor reports X clean again") and interleaved with
+                # `by kernel` notify rows from the same heartbeat. An operator reading the
+                # trail cannot tell the kernel closing its own incident from the Chair
+                # reviewing it, and the audit trail is the one place that difference is
+                # evidence rather than inference.
+                self.work._set(row["id"], "done", note=f"doctor reports {check} clean again",
+                               actor="kernel")
                 # K-2 (G3, 2026-10-30): this close is the kernel's own, so it must leave the
                 # board something that re-checks it -- a registered guard, or a recorded
                 # waiver that says why there is none. Without one, doctor's `incident.guard`

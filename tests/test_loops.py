@@ -388,6 +388,44 @@ class GuardLoop(Loops):
         LIKE clause matches. Returned so the guard below can close it through the real path."""
         return self.k._incident(f"Incident: doctor reports {check}", f"doctor reports {check}")
 
+    def test_the_sweeps_close_is_recorded_as_the_kernels_own_act(self):
+        """Found by RUNNING the read-only doctor on the live instance, 2026-11-04, which reported
+        `incident.guard` on seven closed doctor incidents -- and then reading their trails, which
+        said something the warning did not: every one of the seven closes was recorded `by chair`
+        while carrying this sweep's own note text ("doctor reports X clean again"), and they sat
+        interleaved with `by kernel` notify rows from the same heartbeat. The kernel's act had
+        been written into the hash-chained trail as the Chair's.
+
+        The mechanism is one level below the call. `Work._set` passes no actor to `_event`, whose
+        default is `self.actor or "kernel"` -- and the heartbeat constructs its Kernel with
+        `actor=chair`. So the attribution was correct for every path that goes through the acting
+        principal and wrong for the one path the kernel owns outright, which is why 2026-10-31's
+        actor-patch guard (it walks the capabilities) did not see it: that row was about a
+        capability being missed, and this one is about a *write inside* a capability that already
+        had its actor set.
+
+        What is asserted is the trail, not the schema: a reader of the audit chain must be able to
+        tell the kernel closing its own incident from the Chair reviewing it, and that difference
+        is evidence only in the trail. Mutation-verified: deleting `actor="kernel"` from the
+        sweep's `_set` makes this fail, and the rest of the sweep's behaviour (guard, waiver,
+        reopen) still passes, which is what separates it from the rows it sits beside.
+        """
+        self.k.config["checks"]["class"]["drift.example"] = {"commands": ["true"]}
+        self._open_doctor_incident("drift.example")
+        closed = self.k._resolve_incidents(set())
+        self.assertEqual(len(closed), 1, "the fixture must reach the sweep, or this proves nothing")
+        ev = self.k.wconn.execute(
+            "SELECT actor, note FROM events WHERE entity_id=? AND to_status='done'",
+            (closed[0]["incident"],)).fetchall()
+        self.assertTrue(ev, "the sweep closed the incident but wrote no close event")
+        for e in ev:
+            self.assertEqual(e["actor"], "kernel",
+                             "the sweep's own close is attributed to " + str(e["actor"]) + ", not "
+                             "the kernel: the hash chain cannot distinguish the kernel closing "
+                             "its incident from the Chair reviewing it")
+        # and the note still names the check, so the row is findable either way
+        self.assertIn("clean again", ev[0]["note"] or "")
+
     def test_the_sweeps_own_close_never_leaves_a_warning_behind(self):
         """G3, 2026-10-30. Found by measuring the live instance rather than reading the fix: the
         S5 sweep (`_resolve_incidents`) closes a recovered doctor incident, and K-2's

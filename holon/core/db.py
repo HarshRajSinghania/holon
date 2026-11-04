@@ -17,10 +17,27 @@ from typing import Iterator
 BUSY_TIMEOUT_MS = 15000
 
 # The connections `connect` opened `mode=ro`, by id. A set of ids is not a leak of objects: a
-# dead connection's id is reusable, and a stale id can only make a *new* read-write connection
-# look read-only, so `close` drops an id when its connection is closed and `is_read_only` never
-# holds a reference (holding one would keep the connection object alive forever).
-_RO_CONNS: set[int] = set()
+class _ReadOnly(sqlite3.Connection):
+    """A connection opened `mode=ro`, marked by its own class.
+
+    The record used to be a set of ids, and that was measured wrong on 2026-11-04: CPython
+    reuses the id of a collected object, so a read-only connection dropped without
+    `db.close` leaves its id behind and the NEXT read-write connection inherits it and looks
+    read-only to every write path. That is not theoretical — it is exactly how the suite's
+    `Kernel(home, readonly=True)` cases (tests/test_isolation_redteam.py,
+    tests/test_audit_attest.py, none of which close) made `tests/test_core.MemoryBehaviour`
+    fail with `no such table: departments`: the poisoned write connection skipped
+    `migrate`'s schema, and the direction of the failure is a *write silently skipped*, which
+    is the one direction a stale flag must never point. Holding a reference in a set is the
+    other wrong answer (the connection object never gets collected). A subclass is the
+    identity that dies with its object and cannot be inherited by anything else.
+    """
+    _holon_read_only = True
+
+
+class _ReadWrite(sqlite3.Connection):
+    """The counterpart, so `is_read_only` is a positive check on this class and not the
+    absence of a mark on some other class a future caller might pass in."""
 
 
 def now() -> str:
@@ -30,43 +47,48 @@ def now() -> str:
 def connect(path: Path, readonly: bool = False) -> sqlite3.Connection:
     if readonly:
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=BUSY_TIMEOUT_MS / 1000,
-                               isolation_level=None)
+                               isolation_level=None, factory=_ReadOnly)
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000, isolation_level=None)
+        conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000, isolation_level=None,
+                               factory=_ReadWrite)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
-    if readonly:
-        _RO_CONNS.add(id(conn))
     return conn
 
 
 def close(conn: sqlite3.Connection) -> None:
-    """Close a connection `connect` opened, dropping its read-only record.
+    """Close a connection `connect` opened.
 
-    Without this, `_RO_CONNS` keeps an id after its connection object is collected, and a later
-    connection can be handed the same id and look read-only to every write path -- the failure
-    is a write that is silently skipped, which is the direction a stale flag must never point.
+    There is no record to drop: the read-only identity is the object's class, so it dies with
+    the object. That is the whole point of the change -- the id-set this replaced had to be
+    pruned by hand here, and a caller who simply dropped the connection (every read-only
+    `Kernel` in the suite does) left the id behind for the next write connection to inherit.
     """
-    _RO_CONNS.discard(id(conn))
     conn.close()
 
 
 def is_read_only(conn: sqlite3.Connection) -> bool:
     """Whether this connection was opened `mode=ro`.
 
-    Measured rather than assumed, twice. `PRAGMA query_only` answers 0 for a connection opened
-    with `mode=ro` -- it tracks an explicit `PRAGMA query_only=ON`, not the URI's mode -- and a
-    `sqlite3.Connection` refuses new attributes outright, so the caller's choice cannot be
-    carried on the connection either. What is left is the choice itself, kept where the
-    distribution can see it: `connect` records the id of every connection it opened read-only,
-    and `is_read_only` asks that set. A connection somebody else opened is not the
-    distribution's to classify, and answers False, which is the safe direction for a write
-    path: it attempts the write and sqlite refuses it as it always did.
+    Measured rather than assumed, three times. `PRAGMA query_only` answers 0 for a connection
+    opened with `mode=ro` -- it tracks an explicit `PRAGMA query_only=ON`, not the URI's mode
+    -- and a `sqlite3.Connection` refuses new attributes outright, so the caller's choice
+    cannot be carried on the connection either. What is left is the choice itself, kept where
+    the distribution can see it: `connect` opens every connection through a factory class that
+    encodes it, and `is_read_only` asks the class. The first attempt was a set of ids and it
+    was measured wrong -- an id is reused after its object is collected, so a read-only
+    connection dropped without `db.close` bequeathed its id to the next read-write one, which
+    then read as read-only and skipped its own writes. The class is the identity that dies
+    with the object.
+
+    A connection somebody else opened is not the distribution's to classify, and answers False,
+    which is the safe direction for a write path: it attempts the write and sqlite refuses it as
+    it always did.
     """
-    return id(conn) in _RO_CONNS
+    return isinstance(conn, _ReadOnly)
 
 
 @contextmanager
@@ -104,7 +126,23 @@ def checksum(text: str) -> str:
 def migrate(conn: sqlite3.Connection, db_name: str) -> list[str]:
     """Apply pending migrations in order, each in its own transaction. `.sql` files are scripts;
     `.py` files define `up(conn)` for conversions SQL cannot express. Checksums are recorded so
-    `holon lint` can prove no applied migration was edited."""
+    `holon lint` can prove no applied migration was edited.
+
+    A read-only connection applies nothing and returns empty. Measured 2026-11-03 while
+    validating G9: `holon --home <live> --mode ro task list` died with
+    `sqlite3.OperationalError: attempt to write a readonly database`, raised from inside
+    `0006_checksum_repair.py`'s `up()` -- because `--mode ro` opens both databases `mode=ro`
+    but `Kernel.__init__` calls `migrate` unconditionally, and migration is definitionally
+    a write. The whole point of the read-only door (the 2026-10-24 audit row: a probe of live
+    state must not leave the db it probed with a fresh `-wal` and its own migration stamps)
+    was defeated by the one call every construction makes. `is_read_only` is the record
+    `connect` keeps for exactly this, and `readonly=True` skips `migrate` at the Kernel too
+    -- but a guard here is what makes the rule hold for EVERY caller rather than the one the
+    CLI happens to have: a caller that forgets gets a no-op, not a crash on its first
+    statement, and a schema that is behind is reported by the caller's own reading rather
+    than silently migrated under it."""
+    if is_read_only(conn):
+        return []
     conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT)")
     if "checksum" not in {r[1] for r in conn.execute("PRAGMA table_info(schema_migrations)")}:
         conn.execute("ALTER TABLE schema_migrations ADD COLUMN checksum TEXT")

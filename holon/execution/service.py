@@ -301,7 +301,17 @@ class Kernel:
             home.ensure()
         self.wconn = connect(home.work_db, readonly=readonly)
         self.mconn = connect(home.memory_db, readonly=readonly)
-        if True:
+        # `if True` was here until 2026-11-04, and it was a lie: this docstring said
+        # `readonly=True` "skips migration", the 2026-10-30 ledger row repeated it, and no
+        # guard asserted it -- because the one guard that would have (a read-only kernel on an
+        # instance with migrations pending) could not have passed against the live crash the
+        # row was fixing. `db.migrate` then guarded itself, which made the call harmless
+        # instead of fatal and turned the masked condition into a schema that was never
+        # created: measured as `no such table: departments` in `org.bootstrap()` when a
+        # read-only Kernel was constructed over an unmigrated db. A caller that forgets must
+        # get a no-op (that is `db.migrate`'s guard), and a Kernel that KNOWS it is read-only
+        # must not call it at all.
+        if not readonly:
             migrate(self.wconn, "work")
             migrate(self.mconn, "memory")
         self.config = load_config(home)

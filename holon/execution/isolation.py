@@ -140,6 +140,16 @@ def serve_broker(home: str, address: str, allowed_uids: set[int], stop: threadin
                 conn, _ = srv.accept()
             except socket.timeout:
                 continue
+            except OSError:
+                # The listening socket was closed under us: a test's teardown, or a broker
+                # restarted while its predecessor was inside `accept()`. Measured 2026-11-04:
+                # the uncaught `OSError: [Errno 9] Bad file descriptor` killed the accept thread
+                # and its traceback landed on whatever test ran next (`Kernel(...)` failing
+                # inside `org.bootstrap()` -- one test's teardown race reported as another test's
+                # defect, which is how a flake spends an hour). A closed socket is the loop's
+                # natural end, not a failure: `stop` is the signal, and a dead fd is the same
+                # signal arriving sooner.
+                return
             conn.settimeout(60)
             try:
                 handle_broker(conn, home, allowed_uids)
@@ -268,6 +278,12 @@ def serve_runner(address: str, allowed_uids: set[int], stop: threading.Event | N
                 conn, _ = srv.accept()
             except socket.timeout:
                 continue
+            except OSError:
+                # The same class as serve_broker's, one layer more consequential: this socket
+                # serves every dispatch on a live instance, so a stale thread mid-accept is a
+                # restart rather than a test teardown. Returning quietly is correct in both
+                # cases -- a thread whose socket is gone has nothing left to serve.
+                return
             threading.Thread(target=handle_runner, args=(conn, allowed_uids), daemon=True).start()
 
 

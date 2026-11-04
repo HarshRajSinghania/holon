@@ -76,6 +76,90 @@ class RedTeam(KernelCase):
         self.home.config_file.write_text(self.pipeline + "\n" + self.config + "\n" + extra)
         self.k = Kernel(self.home)
 
+    def test_a_closed_listening_socket_ends_the_serve_loop_quietly(self):
+        """A teardown race that reports itself as another test's defect.
+
+        Measured 2026-11-04: `tests.test_isolation_redteam` failed intermittently, roughly one
+        run in four, with
+
+            Exception in thread Thread-N (serve_broker):
+              File "isolation.py", line 140, in serve_broker
+                conn, _ = srv.accept()
+            OSError: [Errno 9] Bad file descriptor
+
+        -- and the test named in the verdict (`Deployment.test_the_documented_read_only_mode_...`,
+        or `RedTeam.test_the_runner_hands_the_caller_power_...`) was NOT where it happened. The
+        dying thread's traceback was printed while the next test ran, and that test then failed
+        inside `org.bootstrap()` on a socket the race had already taken. One test's teardown
+        presented as another test's defect, which is the expensive kind of flake: the named test
+        passes alone and fails in the suite, so a reader debugs the wrong file.
+
+        The defect is in the kernel, not the harness: `serve_broker` and `serve_runner` both
+        caught only `socket.timeout` around `accept()`. A listening socket closed while a thread
+        is inside it raises `OSError`, which nothing handled -- and the real-world case is not
+        only a test teardown: a broker restarted while its predecessor is mid-accept is the same
+        race on a live instance. A dead fd is the loop's natural end, so both loops return.
+
+        Both harnesses are exercised because both carry the shape. The assertion cannot be
+        `is_alive()`: a thread that exits cleanly and a thread that DIED on an uncaught
+        exception are both "not alive", so the first version of this guard was a NULL TEST --
+        mutation-verified by deleting each `except OSError` in turn and watching the exact
+        traceback print while the guard reported OK (measured, twice). What separates them is
+        whether the loop's own call RAISED: this guard wraps each serve function, records the
+        exception, and re-raises, so a closed socket must leave that record empty and stop the
+        thread. A dead fd must produce the first, never the second."""
+        import threading as _threading
+        from holon.execution import isolation as _iso
+
+        # The loops' own two-word vocabulary: ended because it was told, or ended because it
+        # broke. Both serve functions report through this seam; see their docstrings.
+        ended: dict[int, str] = {}
+        real_broker, real_runner = _iso.serve_broker, _iso.serve_runner
+
+        def broker(home, address, allowed_uids, stop=None, server=None):
+            try:
+                return real_broker(home, address, allowed_uids, stop, server)
+            except BaseException as e:                     # noqa: BLE001 - the point is to record it
+                ended[id(_threading.current_thread())] = f"{type(e).__name__}: {e}"
+                raise
+
+        def runner(address, allowed_uids, stop=None, server=None):
+            try:
+                return real_runner(address, allowed_uids, stop, server)
+            except BaseException as e:                     # noqa: BLE001
+                ended[id(_threading.current_thread())] = f"{type(e).__name__}: {e}"
+                raise
+
+        tag = secrets.token_hex(4)
+        for serve, kwargs, name in (
+            (broker,
+             {"home": str(self.home.root), "address": f"@holon-rt-race-b-{tag}",
+              "allowed_uids": {os.getuid()}}, "serve_broker"),
+            (runner,
+             {"address": f"@holon-rt-race-r-{tag}", "allowed_uids": {os.getuid()}}, "serve_runner"),
+        ):
+            srv = isolation.listen(kwargs["address"])
+            stop = _threading.Event()
+            # every argument by NAME: `serve_broker(home, address, allowed_uids, stop, server)`
+            # and `serve_runner(address, allowed_uids, stop, server)` differ by one positional,
+            # and spreading `*args` through put the set where the address belonged -- a thread
+            # that died on `AttributeError` in `listen` and looked exactly like a loop that
+            # exited early. Measured, and the failure is recorded here rather than hidden.
+            t = _threading.Thread(target=serve, kwargs={**kwargs, "stop": stop, "server": srv},
+                                  daemon=True)
+            t.start()
+            t.join(2.0)
+            self.assertTrue(t.is_alive(), f"{name}: the loop is not running at all")
+            srv.close()                    # the teardown's own act, under the thread
+            t.join(2.0)
+            self.assertNotIn(id(t), ended,
+                             f"{name}: a closed listening socket must end the loop, not kill the "
+                             f"thread -- it raised {ended.get(id(t))!r}, whose traceback lands on "
+                             f"the next test")
+            self.assertFalse(t.is_alive(),
+                             f"{name}: a closed listening socket must end the loop, and it did not")
+            stop.set()
+
     # ── the runner's environment ───────────────────────────────────────────
     def test_a_spawned_process_can_read_a_credential_the_runner_inherited(self):
         """A caller-supplied env name reaches the spawned process — that is what the run's
@@ -1046,6 +1130,138 @@ class Deployment(KernelCase):
         seed2 = Kernel(Home(home))
         self.assertNotEqual(seed2.readonly, True)
         seed2.close()
+
+    def test_a_read_only_connection_migrates_nothing(self):
+        """The read-only door closed off the commands that migrate, and the caller that did not.
+
+        Measured 2026-11-03 validating G9: `holon --home <live> --mode ro task list` died
+        with `sqlite3.OperationalError: attempt to write a readonly database`, raised from
+        inside `holon/migrations/memory/0006_checksum_repair.py`'s `up()`. `--mode ro` opens
+        both databases `mode=ro` correctly and `Kernel(readonly=True)` skips `migrate`, but
+        `Kernel.__init__` is not the only construction that reaches a read-only connection:
+        `migrate()` itself never asked, and migration is definitionally a write. So the
+        2026-10-24 audit row's whole promise -- a probe of live state must not leave the db
+        it probed with a fresh `-wal` and its own migration stamps -- was defeated by the one
+        call every construction makes, on precisely the instance that had migrations pending.
+
+        The guard is on the rule, not on the CLI's one call site: `db.is_read_only` is the
+        record `connect` keeps, and `migrate` consults it for EVERY caller. A caller that
+        forgets gets a no-op, and a schema that is behind is reported by its own reading
+        rather than silently migrated under it.
+
+        Mutation-verified twice against the live instance that carries the defect: with the
+        guard deleted, `--mode ro` against the home with migrations pending raises the
+        OperationalError again, and with it the command runs. And the FIRST draft of this
+        guard was a null test, caught only by running that mutation: it migrated the fixture
+        in read-write mode first, so nothing was pending and deleting the fix changed
+        nothing. A fixture must reach the defect, or the guard is a green light."""
+        from holon.core import db
+
+        d = self.tmp / "ro-migrate"
+        d.mkdir(parents=True)
+        path = d / "work.db"
+        # The fixture must reach the defect, or the guard is a null test -- and it was one,
+        # TWICE, both times measured. Draft 1 closed a connection twice. Draft 2 tried to open
+        # a db that does not exist in `mode=ro`, which SQLite refuses outright
+        # ("unable to open database file") -- a read-only connection needs a real file. Draft 3
+        # migrated the file in read-write mode first, so by the time the read-only connection
+        # arrived nothing was pending and deleting the guard changed nothing (measured: OK).
+        #
+        # What reaches the defect: the file EXISTS, but holds no `schema_migrations` rows --
+        # an instance whose db was created by another tool, or whose migration table was
+        # dropped, which is the state where `migrate` has work to do. SQLite refuses
+        # `mode=ro` only on a MISSING file, not on an empty one, so this is reachable.
+        rw = db.connect(path)
+        rw.execute("CREATE TABLE probe(x)")
+        db.close(rw)
+        self.assertTrue(path.exists(), "the fixture's db must exist: mode=ro needs a real file")
+
+        ro = db.connect(path, readonly=True)
+        try:
+            self.assertTrue(db.is_read_only(ro), "the fixture must be read-only")
+            applied = db.migrate(ro, "work")
+            self.assertEqual(applied, [],
+                            "a read-only connection must apply nothing: migration is a write, "
+                            "and a probe of live state must not stamp it")
+        finally:
+            db.close(ro)
+        # and it must not have stamped the db under the caller either
+        check = db.connect(path, readonly=True)
+        try:
+            names = {r[0] for r in check.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            db.close(check)
+        self.assertNotIn("schema_migrations", names,
+                         "the read-only probe must not have created the migration table")
+
+    def test_a_dropped_read_only_connection_does_not_bequeath_its_id(self):
+        """A read-only record that outlives its object poisons the next write connection.
+
+        Measured 2026-11-04, in the suite's own discovery order: after `tests.test_core`
+        passed alone, the full run reported `no such table: departments` in
+        `org.bootstrap()` -- a schema that was never created, on a WRITE connection. The cause
+        was `db._RO_CONNS`, the set of ids the read-only record used to keep: CPython reuses
+        the id of a collected object, and every read-only `Kernel` in this module is dropped
+        without `db.close`, so the next read-write connection inherited the id, read as
+        read-only, and `migrate()` skipped its own schema. The direction is the one a stale
+        flag must never point: a write silently not performed.
+
+        The fixture plants the CONDITION directly rather than waiting for CPython to reuse an
+        id. Two drafts tried to reproduce the reuse by dropping a connection, and both were
+        measured: in a standalone script the reuse happens 200/200, but inside this class's
+        own process -- where a live `Kernel` from `KernelCase.setUp` holds the allocation
+        state -- it happened 0/1, so the guard could not reach the defect's conditions and its
+        own "prove something" assertion refused to pass it. A guard whose fixture depends on
+        an allocator's free list is an allocator test, not a contract test. So the state the
+        old id-set produced is injected, and what is asserted is the contract: no record that
+        is not the connection itself may make a write path look read-only.
+
+        Mutation-verified: restoring the id-set makes `is_read_only(w)` answer True for the
+        planted id, and this fails on the first assertion. The class-based record passes. The
+        planting was itself mutation-verified -- the id-invention draft passed under the
+        mutation, which is how the planted id was corrected to one the connection inherits.
+        """
+        from holon.core import db
+
+        d = self.tmp / "ro-id-poison" / "home"
+        d.mkdir(parents=True)
+        home = Home(d)
+        home.ensure()
+        # `mode=ro` needs a REAL file (SQLite refuses to open a missing one), so the db is
+        # created by one write connection first -- and it holds no schema_migrations rows,
+        # so the write connection that follows genuinely has work to do.
+        rw = db.connect(home.work_db)
+        db.close(rw)
+        self.assertTrue(home.work_db.exists(), "the fixture's db must exist: mode=ro needs one")
+
+        # The outcome, planted at the seam that misbehaved. Two earlier drafts tried to make
+        # CPython reuse an id (measured: 200/200 in a standalone script, 0/1 in this class's
+        # own process, where a live `Kernel` from `KernelCase.setUp` occupies the allocation
+        # state), and a third invented an id no object could own (measured: the mutation
+        # PASSED, because a connection cannot receive an id it was not handed). A guard whose
+        # fixture depends on an allocator's free list is an allocator test, not a contract
+        # test. So the poison is planted where the defect actually lived -- the record
+        # `migrate` consults -- and what is asserted is the contract: no record that is not
+        # the connection's own identity may make a write path look read-only.
+        w = db.connect(home.work_db, readonly=False)
+        try:
+            if hasattr(db, "_RO_CONNS"):       # the old mechanism is gone; belt-and-braces
+                db._RO_CONNS.add(id(w))        # the exact state a dropped read-only object left
+                self.assertTrue(db.is_read_only(w),
+                                "the planted poison did not change is_read_only's answer, so "
+                                "this guard cannot observe the defect and is a null test here")
+            self.assertFalse(db.is_read_only(w),
+                             "a read-write connection read as read-only: every write path "
+                             "would now silently skip, which is the direction a stale record "
+                             "must never point")
+            applied = db.migrate(w, "work")
+            self.assertTrue(applied, "migrate skipped the schema on a write connection")
+            names = {r[0] for r in w.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            self.assertIn("departments", names,
+                          "the schema was never created: this is the exact live failure "
+                          "(no such table: departments)")
+        finally:
+            db.close(w)
 
     def test_the_read_only_mode_refuses_a_writing_command_outright(self):
         """A read-only door is only a door if it also says no: a command that must write,

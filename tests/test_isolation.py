@@ -864,10 +864,18 @@ class Setup(KernelCase):
         # the harness's own `chmod 700`: the entry survives, the mask erases it
         os.chmod(probe, 0o700)
         erased = self.effective_bits(probe, me)
-        self.assertFalse(erased.endswith("x"),
-                         "after the chmod the grant must be inert -- this is the live state, "
-                         "and if it is not, this guard measures a healthy tree instead of the "
-                         "defect (the null test: it would pass with the repair deleted)")
+        # `endswith("x")` was measured insufficient 2026-11-04: a mask-erased entry reads
+        # `user:<agent>:--x <TAB>#effective:---`, and the TRAILING `#effective:---` also fails to
+        # end with "x" -- so an `effective_bits` rewritten to return the raw entry (ignoring the
+        # mask, which is the exact confusion this guard exists for) passes this assertion. The
+        # assertion must therefore compare the bits POSIX computed, not inspect the string.
+        self.assertEqual(erased, "---",
+                         "after the chmod the effective bits must be EMPTY -- this is the live "
+                         "state, and if they are not, this guard measures a healthy tree instead "
+                         "of the defect (the null test: it would pass with the repair deleted)")
+        self.assertNotIn("effective", erased,
+                         "the value must be the effective bits themselves, not a getfacl line "
+                         "carrying them")
         # The SAME state, read by the older denial guard: `find_one_denial_on` matches a
         # line ending in `:---`, and the mask-erased entry ends in `#effective:---`, so it
         # reports a DENIAL on a path the plan granted. That is a false positive in the blind

@@ -852,6 +852,11 @@ class Doctor(KernelCase):
                 {"name": "envvar-elsewhere",
                  "cmd": "test -f $HOME/elsewhere/x", "critical": True,
                  "reason": "a path spelled through an env var, outside the reach"},
+                # a mixed command: it names the department's tree AND another one. It stays ours,
+                # because excusing a check because it also names an outside tree would let a
+                # check bury a real failure in a footnote.
+                {"name": "mixed", "cmd": f"test -f {k.home.root / 'own'}/x -o -f /elsewhere/y",
+                 "critical": True, "reason": "a check touching the department's own tree is ours"},
             ]}}}
             findings = doctor.run(k)
             errs = "\n".join(f["message"] for f in findings if f["check"] == "smoke.critical")
@@ -870,6 +875,8 @@ class Doctor(KernelCase):
                             "it is still reported, and it says why it is not ours")
             self.assertTrue(any("envvar-elsewhere" in f["message"] for f in warns),
                             "a path spelled through an env var OUTSIDE the reach is also elsewhere")
+            self.assertIn("mixed", errs,
+                          "a check touching the department's own tree partly is still ours")
             k.close()
 
 

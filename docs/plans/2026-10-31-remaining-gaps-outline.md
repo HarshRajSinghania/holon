@@ -78,28 +78,31 @@ complete and guarded); it is the next piece of work, and it is §1's G7.
 
 ## §2. G10 — the heartbeat died, and the instrument only noticed on the next run
 
-**Status today: dead 568 minutes; the stamp is 4 hours stale; the timer is `inactive`.**
+**Status today: HEALTHY, measured 2026-11-04 13:02Z — the plan's own premise is stale.**
 
-The ledger's 2026-10-22 row records that the operant gateway's clock organ runs
-`holon tick` every 2 minutes and stamps `.clock/last_tick`, and that doctor reads that stamp.
-Measured 2026-10-31 22:30Z: the stamp is from **18:29Z**, the timer is `inactive`, and no user
-unit exists. So the clock organ stopped, and `heartbeat.stale` is exactly the right finding.
+Three stamp samples over a window longer than the cadence: 1793797221, then 1793797344, then
+1793797344 — 123 seconds between the first two, and the stamp 11 seconds old at read time. The
+cadence is 120 seconds by the ledger's own record, so this clock is alive and on cadence. The
+`inactive` timer is not the defect: the clock organ is another stack's, and it drives `holon tick`
+without the kernel's unit — the arrangement the code's comment already names.
 
-**The gap this row records is not the dead clock.** It is that a dead clock costs four hours of
-silence: `heartbeat.stale` is a doctor *warning*, and doctor runs on the same heartbeat that
-stopped. The instrument that names a dead clock is the clock. This is the same structural
-shape as the 2026-10-23 row (an absent trust boundary was a warning the heartbeat never
-escalated), one layer over: the check is correct, and it cannot run when it is needed.
+**Why the row is kept rather than deleted.** The premise "dead 568 minutes" is false today, but
+the *gap* it recorded is real and is what the row is for: a dead clock costs silence, because
+`heartbeat.stale` ran on the same heartbeat that stopped — the instrument that names a dead clock
+is the clock. That was closed 2026-11-03 (the staleness now reaches a surface that does not
+require the tick: any path that runs doctor, including the broker's request loop and the
+heartbeat's own doctor phase, escalates it as an error and opens an incident). The guard holds
+both directions of the threshold, so an edit cannot make a live clock read as dead or a dead one
+read as alive.
 
-**What is required, and what is not.** Restarting the clock organ is the operator's, not the
-kernel's. What the kernel can do is make the staleness reach a surface that is not the thing
-that died — the same way `schedule.nowake` reaches the Chair as an error while no clock fires.
-Concretely: a `heartbeat.stale` threshold that is also checked by a path that does not require
-the heartbeat (the broker's request loop, or the tick's own `systemd` unit's `OnFailure`), so a
-long-dead clock escalates rather than waiting for the next tick that will never come.
+**The sampling lesson this row's first measurement got wrong, recorded because it cost two rounds:**
+the first probe sampled the stamp 45 seconds apart, saw no change, and reported DEAD. The cadence
+is two minutes and the threshold six, so a sub-cadence window reports death on a live clock
+exactly as it reports life on a dead one. Three samples at a window at or above the cadence settle
+it; anything shorter cannot answer the question and should say so rather than pick a direction.
 
-**Gate:** the finding appears on a surface within one stale threshold without a tick, and a
-restarted clock clears it.
+**Gate:** already met — a stale heartbeat reaches a surface without a tick, and a healthy one is
+silent (measured today: zero heartbeat findings).
 
 ## §3. G11 — `isolation.reach` is drift, and the fix is one command
 
@@ -147,7 +150,13 @@ grade reflects it — one test crossing the seam with the other side's real arti
 
 ## §5. G8 and G9 — the revenue departments, and the Chair's two decisions
 
-**Status today: 7 active employees across 2 departments; 37 ready approval gates across 3.**
+**Status today: 7 active employees across 2 departments; 26 ready approval gates across 3 — re-measured 2026-11-04.**
+
+The outline's own figures were wrong in both directions: it said 37 gates across 3 departments,
+and a later pass said 39. Live, the count of `stage='approve' AND status='ready'` is **26** — 11
+Career Pipeline, 11 Freelance Agency, 4 Architectural Leads. The extra rows in the earlier counts
+were terminal and non-ready ones, which are not gates anyone can decide. The department split below
+is measured and current.
 
 | Department | Employees | Ready work | Ready approve gates |
 |---|---|---|---|
@@ -202,14 +211,24 @@ dead path consume the other's alarm surface.
 
 | Order | Row | Cost | Who |
 |---|---|---|---|
-| 1 | G12 (skill export) | one command, zero tokens | me |
-| 2 | G11 (`apply --force`) | one command, the Chair's | Chair |
-| 3 | G10 (restart the clock organ) | one restart | Chair |
-| 4 | G9 (the 26 gates) | the Chair's approve/reject | Chair |
-| 5 | **G7 (operation steps)** | kernel: contract + writer + reader, tests first | me |
-| 6 | G8 (hire per department) | no tokens | me, after G9 |
-| 7 | G13 (the re-link) | the Chair's signed act | Chair |
+| — | G12 (skill export) | **done 2026-11-04** (`86bbe07`) | me |
+| — | G7 (operation steps) | **done 2026-11-04** (`7e9ee30`) | me |
+| — | G10 (heartbeat staleness) | **done 2026-11-03** (`1583cf0`); the clock itself is healthy | me |
+| — | G14 (smoke provenance) | **done 2026-11-04** (`f1b498c`) | me |
+| 1 | G11 (`apply --force`) | one command | Chair |
+| 2 | G9 (the 26 gates) | the Chair's approve/reject | Chair |
+| 3 | G8 (hire per department) | no tokens, but **blocked on the clock**: no employee has a live wake schedule, so a hire cannot be fired | me, after G9 |
+| 4 | G13 (the re-link) | the Chair's signed act | Chair |
 
-Steps 1–3 are the whole of the live instance's gap list outside the Chair's two decisions. Step
-5 is the only kernel work left, and it is the one that turns the Chair's token-budget discipline
-into a property of the work.
+What is left is the Chair's four decisions and nothing else. The kernel work this outline
+prescribed is closed, and the one row it left for "me" (G7, operation steps) is the one that
+turns the Chair's token-budget discipline into a property of the work — its gate is one test
+crossing the seam with the other side's real artifact, not a stub, because a steps field that
+validates but never runs is the same defect class as the `_step_problems` reader this session
+found: written, and called by nothing.
+
+One correction for whoever picks this up next: **G8 is not actionable today.** Measured
+2026-11-04, no active employee has a live wake schedule (`schedule.nowake`, an error on the
+board), and the Chair disabled both `wake` schedules on 2026-10-30 with no note. Hiring into a
+department nothing can fire spends the Chair's budget on a body that cannot be woken. The clock
+must be armed first, and that is a decision, not a bug.

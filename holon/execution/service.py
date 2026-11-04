@@ -2239,7 +2239,20 @@ class Kernel:
         # and `shlex.split` hands the whole body back as ONE token beginning with `import`, so a
         # token scan saw only `/usr/bin/python3` and graded the department's own failing script as
         # "somewhere else". Tokens also lose a quoted path containing a space.
-        raw_paths = re.findall(r"(?:^|[\s'\"=(:;])((?:/|~/)[\w@.+~-]+(?:/[\w@.+~-]+)*/?)", cmd or "")
+        #
+        # Env-var prefixes are expanded before the scan, because the live corpus spells paths that
+        # way: measured 2026-11-04, four of `career-pipeline`'s checks name their tree only as
+        # `$HOME/<...>`, and a regex that only recognises `/` and `~/` finds NO path in them at
+        # all -- so a failing one reads as "a probe, not elsewhere" and stays an A-side critical
+        # error. `$HOME` is the only variable the corpus uses, so the expansion is a one-name
+        # map; an unknown variable is deliberately NOT substituted, because guessing could move a
+        # path we cannot see. (A variable the shell would resolve to a different tree than we do
+        # is a case for the command to name the path outright.)
+        cmd = cmd or ""
+        for name in ("$HOME", "${HOME}"):
+            if name in cmd:
+                cmd = cmd.replace(name, str(Path.home()))
+        raw_paths = re.findall(r"(?:^|[\s'\"=(:;])((?:/|~/)[\w@.+~-]+(?:/[\w@.+~-]+)*/?)", cmd)
         saw_path = False
         for raw in raw_paths:
             try:

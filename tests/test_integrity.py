@@ -822,6 +822,12 @@ class Doctor(KernelCase):
             (k.home.root / "own").mkdir()
             k.config.setdefault("scope", {}).setdefault("dept", {})["mine"] = {
                 "roots": [str(k.home.root / "own")]}
+            # a path spelled the way the live corpus spells one: `$HOME/<rest>`. The kernel expands
+            # the variable, so the reach comparison works against the same tree.
+            try:
+                inside_envvar = "$HOME/" + str((k.home.root / "own").relative_to(Path.home()))
+            except ValueError:
+                inside_envvar = str(k.home.root / "own")
             k.config["smoke"] = {"every_min": 5, "dept": {"mine": {"checks": [
                 {"name": "inside-the-reach", "cmd": f"test -f {k.home.root / 'own'}/x",
                  "critical": True, "reason": "a real A-side failure"},
@@ -836,6 +842,16 @@ class Doctor(KernelCase):
                          + str(k.home.root / "own" / "y.py")
                          + "'); assert False\"",
                  "critical": True, "reason": "a path inside a quoted body is still a path"},
+                # the other live shape: a path spelled with an env var the kernel expands. Measured
+                # 2026-11-04 on the live instance -- four checks name their tree only as
+                # `$HOME/<...>`, and the first derivation's regex saw no path at all, so they read
+                # as "a probe" and any failure stayed an A-side critical error.
+                {"name": "envvar-inside",
+                 "cmd": "test -f " + inside_envvar,
+                 "critical": True, "reason": "a path spelled through an env var is still a path"},
+                {"name": "envvar-elsewhere",
+                 "cmd": "test -f $HOME/elsewhere/x", "critical": True,
+                 "reason": "a path spelled through an env var, outside the reach"},
             ]}}}
             findings = doctor.run(k)
             errs = "\n".join(f["message"] for f in findings if f["check"] == "smoke.critical")
@@ -843,6 +859,8 @@ class Doctor(KernelCase):
                           "a real A-side critical failure is still an error")
             self.assertIn("quoted-inside", errs,
                           "a path inside a quoted script body is inside the reach: it is still an error")
+            self.assertIn("envvar-inside", errs,
+                          "a path spelled through an env var is a path: it is still an error")
             self.assertIn("a-probe", errs,
                           "a check naming no path is a probe and stays an error")
             self.assertNotIn("elsewhere", errs,
@@ -850,6 +868,8 @@ class Doctor(KernelCase):
             warns = [f for f in findings if f["check"] == "smoke.elsewhere"]
             self.assertTrue(any("elsewhere" in f["message"] for f in warns),
                             "it is still reported, and it says why it is not ours")
+            self.assertTrue(any("envvar-elsewhere" in f["message"] for f in warns),
+                            "a path spelled through an env var OUTSIDE the reach is also elsewhere")
             k.close()
 
 

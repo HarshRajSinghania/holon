@@ -13,6 +13,13 @@ modules = ["core", "records", "agents", "integrity"]   # the legacy kb.toml set 
 
 [core]
 pointer_ignore = "BRIEF.md holon.toml INDEX.md"   # AGENTS.md path refs that live in $HOLON_HOME or are referenced by bare name inside their own row, not in this repo
+# This repo's vendored CLI carries local rules upstream does not ship: the F1
+# suppression audit (W00A/W00B) and its helpers, applied by scripts/genome_apply_f1.py
+# after every re-vendor. The release bytes would DROP them, so `genome installs verify`
+# is told the divergence is deliberate rather than corruption — without this line the
+# check calls this repo CORRUPTED and the obvious remedy (re-vendor to match the
+# release) wipes the rules and re-breaks the gate. Guard: tests/test_kb.py.
+vendored_cli_patch = "F1 rules (W00A/W00B) applied by scripts/genome_apply_f1.py; release bytes would drop them"
 # the gate this repo's own AGENTS.md names, as one command
 gate = "./scripts/gate.sh"
 # the judgement the repo's laws make mandatory

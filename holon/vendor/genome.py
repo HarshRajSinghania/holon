@@ -152,7 +152,7 @@ ERR = 2
 MIN_CHUNK = 5  # lines; `ask` hits narrower than this point at a lead line without its content
 HUB_NODE_CAP = 3000  # nodes; above this `graph hubs` ranks by degree and says betweenness was not computed
 _TMP_SEQ = itertools.count()  # makes each atomic_write temp name unique within this process too
-VERSION = "2026.11.02-71"
+VERSION = "2026.11.02-74"
 # every key genome reads: an unknown key is a typo that would silently switch a check off (E017)
 CONFIG_KEYS = {
     "genome": {"modules", "schema_version"},
@@ -2161,6 +2161,8 @@ def cmd_lint(args) -> None:
     if args.only:
         cfg.need(args.only)
     found = run_lint(cfg, args.only)
+    unfiltered_n = len(found)  # pre-filter total; a --code filter must not be able to claim "clean"
+    hidden_counts = None      # set only when a filter hid actionable findings; carried in --json
     if args.code:
         # A code that matches nothing is a fact the caller needs. Measured 2026-11-03: this
         # repo's own `core.gate` listed `E601 E603 E604 E605 E606 E607 E608` after the
@@ -2180,8 +2182,34 @@ def cmd_lint(args) -> None:
             # filter that did not match: `lint --code E015` on an E015-free tree would read
             # "E015" in the note and conclude the stale finding was present. Measured
             # 2026-11-03 — the first form of this note broke redteam3 exactly that way.
-            print("note: the given --code filter matched no finding — the unfiltered lint reports "
-                  "some (`genome lint --all` to see them)")
+            #
+            # The severity COUNTS are safe to name (they are counts, not codes) and they are
+            # the whole point: a gate that reads "lint: clean" while the tree holds a real
+            # error is the silent weakening this note exists to prevent. Measured 2026-11-03.
+            hid_e = sum(1 for f in found if f.startswith("E"))
+            hid_w = sum(1 for f in found if f.startswith("W"))
+            hid = [f"{hid_e} error(s)", f"{hid_w} warning(s)"]
+            hid = ", ".join(p for p in hid if not p.startswith("0"))
+            # JSON stdout is a CONTRACT: an agent pipes it into json.loads(). Measured
+            # 2026-11-04 — this note was printed to stdout ahead of the document, so
+            # `lint --json --code <dead>` emitted two lines and every consumer's
+            # json.loads(stdout) raised. The defect predates -72; the fix does not.
+            #
+            # The note stays on STDOUT in the text form — that is where it has always
+            # been, and redteam3 reads stdout for it. Only the JSON form moves it to
+            # stderr, because there stdout is the document and nothing else may share
+            # it. The counts travel INSIDE the document as `hidden`, where a consumer
+            # can act on them instead of merely reading them.
+            if args.json:
+                hidden_counts = {"errors": hid_e, "warnings": hid_w}
+                print(f"note: the given --code filter matched no finding — the unfiltered lint reports "
+                      f"{hid} (`genome lint --all` to see them)", file=sys.stderr)
+            else:
+                hidden_counts = None
+                print(f"note: the given --code filter matched no finding — the unfiltered lint reports "
+                      f"{hid} (`genome lint --all` to see them)")
+        else:
+            hidden_counts = None
         found = filtered
     # Three severities, and only one of them stops the build. An `I` finding is a
     # fact an operator should see (this repo declares a Rust build but no cargo
@@ -2192,8 +2220,15 @@ def cmd_lint(args) -> None:
     infos = [f for f in found if f.startswith("I")]
     warns = [f for f in found if f.startswith("W")]
     if args.json:
-        jprint({"errors": len(errs), "warnings": len(warns), "info": len(infos), "modules": sorted(cfg.modules),
-                "findings": [{"code": f[:4], "severity": SEVERITY[f[0]], "text": f[5:]} for f in sorted(found)]})
+        doc = {"errors": len(errs), "warnings": len(warns), "info": len(infos), "modules": sorted(cfg.modules),
+               "findings": [{"code": f[:4], "severity": SEVERITY[f[0]], "text": f[5:]} for f in sorted(found)]}
+        # The hidden counts ride along so a JSON consumer sees what the filter hid, rather
+        # than reading an empty findings list as a clean tree. Absent, not zero, when
+        # nothing was hidden — "hidden: {errors: 0}" would read as "the filter hid nothing
+        # worth naming" and blur the difference between no filter and a clean tree.
+        if hidden_counts:
+            doc["hidden"] = hidden_counts
+        jprint(doc)
         raise SystemExit(ERR if errs and not args.advisory else 0)
     by: dict[str, list[str]] = {}
     for f in sorted(found):
@@ -2208,8 +2243,12 @@ def cmd_lint(args) -> None:
         parts.append(f"{len(warns)} warning(s)")
     if infos:
         parts.append(f"{len(infos)} info")
+    # "clean" is a claim about the tree, not about the filter. When a --code filter is
+    # in force and something was hidden by it, saying "clean" is a lie a gate log will be
+    # read as truth — the exact failure this path is documented against. Measured 2026-11-03.
+    hidden = bool(args.code) and len(found) < unfiltered_n
     print(f"lint: {', '.join(parts)} [{', '.join(sorted(cfg.modules))}]"
-          if found else f"lint: clean [{', '.join(sorted(cfg.modules))}]")
+          if found else f"lint: clean{' (filtered)' if hidden else ''} [{', '.join(sorted(cfg.modules))}]")
     raise SystemExit(ERR if errs and not args.advisory else 0)
 
 

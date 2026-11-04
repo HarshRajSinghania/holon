@@ -96,5 +96,5 @@ six roles, a profile of slots, a pipeline, tailored skills, and an autonomy poli
    waits on the other program's state. Where a document describes Holon as the operating system
    *for* another system's ventures, that is a **proposal awaiting a decision**, never a fact about
    what is running today. The scope statement and the A-side gap list sit in the operator's
-   own overlay as a dated `docs/design/` record (2026-10-20, the A-side boundary), because the law
-   above is the part every distribution carries.
+   own overlay as `docs/design/` records kept outside every distribution, because the law above is
+   the part every distribution carries.

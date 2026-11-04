@@ -486,6 +486,64 @@ class ExportedSkillsSurviveTheBoundary(KernelCase):
         self.assertTrue((dest / "holon-executor" / "SKILL.md").is_file(),
                         "the export landed its file")
 
+    def test_refresh_routes_through_the_writer_not_just_the_registration(self):
+        """The registration path and the refresh path are two call sites, and only one had the fix.
+
+        Measured live 2026-11-04 while re-validating G12 by trying the export for real:
+        `Kernel.export_skills` (which registers a harness directory) passed the routing
+        writer, and `Kernel.refresh_skill_exports` -- the call a running instance makes on
+        EVERY skill change -- did NOT. It fell through to `Library.export`'s default plain
+        `write_text` and refused with `Errno 13 Permission denied` on the agent-owned
+        adapter home, which is exactly the exposure `_export_writer` exists to route around.
+
+        What hid it for a whole session: the G12 guards above all exercise
+        `export_skills`, and the freshness check compared the FILES on disk -- which were
+        old-but-valid rather than corrupt, so a stale skill looked like no change at all.
+        A guard on the registration path cannot see a defect in the refresh path.
+
+        The fixture is the live shape, and getting it wrong silently inverted the guard:
+        `_kernel_owns` asks the FILE's own parent (`.../skills/<name>`), so the directory
+        that decides the route is the skill directory, not the export root -- and the mocked
+        runner creates nothing, so the guard must make that directory itself.
+        """
+        import shlex
+        from holon.execution.service import _kernel_owns
+        sent = {}
+
+        def fake_run(address, cmd, cwd, env, timeout_s, **kw):
+            sent["cmd"] = cmd
+            sent["env"] = env
+            return (0, "", "")
+
+        dest = self.tmp / "agenthome" / "skills"
+        dest.mkdir(parents=True)
+        # register FIRST, while the tree is still writable, so the entry the refresh reads exists
+        with mock.patch.object(isolation, "run", fake_run), \
+             mock.patch.object(Kernel, "isolation", new_callable=mock.PropertyMock,
+                               return_value={"runner": "@holon-runner-test", "agent_user": "agent"}):
+            self.k.export_skills(dest, {"holon": EXPORTED_HOLON}, ["holon-executor"])
+        self.assertTrue(self.k.skill_exports(), "the export must be registered for the refresh to find it")
+        # now make the destination the agent's, the way `isolation apply` leaves a harness home
+        skilldir = dest / "holon-executor"
+        skilldir.mkdir(parents=True, exist_ok=True)
+        os.chmod(skilldir, 0o555)
+        self.assertFalse(_kernel_owns(skilldir / "SKILL.md"),
+                         "the fixture must be outside the kernel's write reach, or this guard "
+                         "measures a kernel-owned export and proves nothing (the null test)")
+        sent.clear()
+        with mock.patch.object(isolation, "run", fake_run), \
+             mock.patch.object(Kernel, "isolation", new_callable=mock.PropertyMock,
+                               return_value={"runner": "@holon-runner-test", "agent_user": "agent"}):
+            self.k.refresh_skill_exports()
+        os.chmod(skilldir, 0o755)
+        self.assertTrue(sent.get("cmd"),
+                        "the refresh must route its write through the boundary's runner: a "
+                        "harness home the agent owns is outside the kernel's write reach, and "
+                        "the registration path's writer was missing here (measured 2026-11-04)")
+        self.assertIn("HOLON_EXPORT_BODY", sent["cmd"],
+                      "the body crosses as a name, not quoted into the command")
+        self.assertNotIn("`", sent["cmd"],
+                         "the command carries no backtick: a skill body's quotes never reach a shell")
 
 if __name__ == "__main__":
     unittest.main()

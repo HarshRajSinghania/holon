@@ -1183,10 +1183,26 @@ class Kernel:
         return writer
 
     def refresh_skill_exports(self) -> list[str]:
+        """Re-export every remembered export so a skill change reaches the harnesses.
+
+        The writer matters here more than anywhere else: this is the path a running instance
+        takes on every skill change, and a harness's adapter home is agent-owned (the
+        boundary grants it as a WRITE root for the agent user, so `isolation apply` gives
+        the agent `rwX` over the whole tree -- the skills subtree included). Measured live
+        2026-11-04 while re-validating G12: this method called `export` WITHOUT the routing
+        writer, so every refresh fell through to the default plain `write_text` and refused
+        with `Errno 13 Permission denied` on the agent-owned tree -- while `export_skills`
+        (the one-time registration) routed correctly. The harness was therefore served stale
+        skills by every later change, which looks exactly like no change at all, and the
+        registration path's success hid it. The byte-for-byte check that missed it compared
+        the files on disk, and those files were old-but-valid rather than corrupt.
+        """
         done = []
         for r in self.skill_exports():
-            if Path(r["dir"]).is_dir():
-                self.skills.export(Path(r["dir"]), r["variables"], r["names"], r["dept"])
+            dest = Path(r["dir"])
+            if dest.is_dir():
+                self.skills.export(dest, r["variables"], r["names"], r["dept"],
+                                   writer=self._export_writer(dest))
                 done.append(r["dir"])
         return done
 

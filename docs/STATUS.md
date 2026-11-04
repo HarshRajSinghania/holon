@@ -205,6 +205,19 @@ whose inputs changed (AGENTS.md).
 > tests, 3 failures + 17 errors against a baseline of 4 + 18 at `4a7c8dd` — all 18 shared
 > failures are pre-existing, my tree adds none and fixes four. Gate: `lint --strict` 0/0.
 >
+> **G12's export had a second defect the first validation pass could not see, found 2026-11-04
+> by running the export for real instead of reading its guards.** The registration path
+> (`Kernel.export_skills`) routed its write through the boundary's runner as the agent user,
+> which is what the G12 guards exercised — but `Kernel.refresh_skill_exports`, the call a
+> running instance makes on **every skill change**, did NOT pass the writer. It fell through
+> to `Library.export`'s plain `write_text` and refused live with `Errno 13 Permission denied`
+> on the agent-owned adapter home, so the harness was served **stale skills** by every later
+> change — and stale looks exactly like no change. A guard on one call site cannot see a
+> defect in the other, which is why the fix now has a guard that registers and then
+> refreshes. Live after the fix: both registered exports refresh (2 of 2) and all 32 files in
+> each stay byte-identical to the distribution. This is the fourth instance this session of
+> a **green guard on the wrong path**: measure the operation, not only its test.
+>
 > **G9's count is corrected, and the earlier figure was mine and wrong.** A previous session
 > recorded "39 gates across five departments, 26 G3 outside-reach". Re-measured through
 > `holon task list --stages --stage approve` and `Work.list`/`Work.counts`: **52 approve-stage

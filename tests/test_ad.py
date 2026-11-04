@@ -164,11 +164,32 @@ class AdIndex(KernelCase):
         # negation wins for the file beneath it, so no further assertion is needed there.
         self.assertTrue(ignored(".genome/index.db"),
                         "the runtime state must be ignored")
-        self.assertFalse(ignored(".genome/overrides/RECORDS_TPL.md"),
-                         "the exemption must EXCLUDE the authored override, not merely mention "
-                         "it: a rule that ignores this directory still passes a substring "
-                         "assertion on the negation text, and drops the override for every "
-                         "fresh clone")
+        # The exemption's own question, asked where its answer is honest. Measured 2026-11-04:
+        # `check-ignore` on the TRACKED RECORDS_TPL.md answers "not ignored" whatever the rules
+        # say, so an assertion there can never fail -- a tautology that reads as proof. With the
+        # exemption commented out entirely that tracked answer stayed "not ignored" while a
+        # fresh clone LOST the override, so the guard seeds the file into a scratch repo, where
+        # it is untracked, and asks git there. Replacing the negation with a positive ignoring
+        # rule is caught by this too: the negation CONTAINS the positive text, so a substring
+        # assertion on the exemption cannot tell the two apart.
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(["git", "init", "-q", d], capture_output=True, check=True)
+            shutil.copy(repo / ".gitignore", Path(d) / ".gitignore")
+            (Path(d) / ".genome" / "overrides").mkdir(parents=True)
+            shutil.copy(repo / ".genome" / "overrides" / "RECORDS_TPL.md",
+                        Path(d) / ".genome" / "overrides" / "RECORDS_TPL.md")
+            clone_rc = subprocess.run(["git", "check-ignore", "-q",
+                                       ".genome/overrides/RECORDS_TPL.md"],
+                                      cwd=d, capture_output=True).returncode
+        self.assertEqual(clone_rc, 1,
+                         f"a fresh clone must SEE the authored override: git's check-ignore on "
+                         f"an untracked copy answers {clone_rc} (0 = ignored), so the exemption "
+                         f"is not re-including it and every fresh clone loses the override -- "
+                         f"commenting out or removing the exemption changes nothing for this "
+                         f"repository's tracked copy, which is why only a path git does not "
+                         f"already track can answer the question the rule exists to settle")
         self.assertIn("!.genome/overrides/", ignore,
                       "the exemption is written as a negation, which is the only form that "
                       "re-includes a path the ignore rule already matched")

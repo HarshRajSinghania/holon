@@ -201,6 +201,41 @@ class DoctorOnTheHeartbeat(KernelCase):
                       "reaches nobody while it is a warning")
         self.assertFalse([x for x in self.k.tick()["triggered"] if "incident" in x], "doctor waits doctor_every_min")
 
+    def test_a_check_about_somewhere_else_opens_no_incident(self):
+        """G14's whole point, asserted at the seam that spends the Chair's attention.
+
+        The 2026-10-30 incident `Incident: doctor reports smoke.critical` sat open for five days
+        naming another stack's dead paths, because `_doctor` opens an incident for every check
+        reporting `severity == "error"` and the kernel had no concept of a check's provenance.
+        `doctor.py` now grades a check about somewhere else as a WARNING (`smoke.elsewhere`), and
+        this guard proves the consequence end-to-end rather than trusting the severity string:
+        the failing check produces the warning, and no incident is opened for it.
+
+        A real A-side failure in the same run still opens one, which is the other half --
+        the fix must not be a blanket silence. Both halves run in one tick so neither is stubbed.
+        """
+        self.k.auth.init_chair_key()
+        own = self.home.root / "own"
+        own.mkdir(parents=True, exist_ok=True)
+        self.k.config.setdefault("scope", {}).setdefault("dept", {})["mine"] = {
+            "roots": [str(own)]}
+        self.k.config["smoke"] = {"every_min": 5, "dept": {"mine": {"checks": [
+            {"name": "ours", "cmd": f"test -f {own}/x", "critical": True,
+             "reason": "a real A-side failure"},
+            {"name": "elsewhere", "cmd": "test -f /elsewhere/x", "critical": True,
+             "reason": "a check about somewhere else"},
+        ]}}}
+        self.k.run_smoke()
+        findings = doctor.run(self.k)
+        self.assertTrue(any(f["check"] == "smoke.elsewhere" for f in findings),
+                        f"the check is reported as a warning: {findings}")
+        opened = {x["title"] for x in self.k.tick()["triggered"] if "incident" in x}
+        self.assertIn("Incident: doctor reports smoke.critical", opened,
+                      "the real A-side failure still reaches the Chair: this is not a blanket silence")
+        names = " ".join(str(x.get("title") or "") for x in self.k.tick()["triggered"])
+        self.assertNotIn("smoke.elsewhere", names,
+                         f"the elsewhere check must not be folded into any incident: {names}")
+
     def test_a_doctor_incident_closes_when_its_check_recovers(self):
         """S5 (2026-10-26 two-repo audit): `_doctor` opens an incident per failing check and its own
         text promises *"the incident is done when doctor is clean for this check."* No code closed

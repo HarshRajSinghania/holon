@@ -204,6 +204,34 @@ whose inputs changed (AGENTS.md).
 > reads `depends_on` at all, so the honest fix was deletion over reconstruction. Suite 933
 > tests, 3 failures + 17 errors against a baseline of 4 + 18 at `4a7c8dd` — all 18 shared
 > failures are pre-existing, my tree adds none and fixes four. Gate: `lint --strict` 0/0.
+>
+> **G9's count is corrected, and the earlier figure was mine and wrong.** A previous session
+> recorded "39 gates across five departments, 26 G3 outside-reach". Re-measured through
+> `holon task list --stages --stage approve` and `Work.list`/`Work.counts`: **52 approve-stage
+> rows exist, of which 19 done, 7 cancelled and 26 ready** — so the number the kernel reports
+> (`ready_stages.approve`, and `awaiting_approval("chair")` = 26) counts only `status='ready'`,
+> and counting every stage row is the sampling error that produced 39/52. Those 26 sit in
+> **three** departments — career-pipeline 11, freelance-agency 11, architectural-leads 4 — not
+> five, all `requested_by: chair`, all `source: kernel`: **25 at grade 3 and 1 at grade 2**, the
+> grade-2 exception being `dad-arch-materials-refresh` (the one row the kernel starts on
+> approval rather than leaving OFF, which is what §1's 2026-10-24 entries describe). The 13
+> non-ready rows are terminal (`done`/`cancelled`) incident work, not unruled gates. G9's real
+> requirement — the Chair's approve/reject is surfaced, not assumed — holds: all 26 are
+> `awaiting YOUR approval` and the kernel starts none of them.
+>
+> **Three items re-confirmed rather than assumed.** G10: both `heartbeat.stale` branches in
+> `holon/integrity/doctor.py` escalate to `add("error", ...)`, and the threshold guard pair in
+> `tests/test_integrity.py` (`a_stamp_younger_than_the_threshold_is_not_stale` and
+> `an_unreadable_stamp_is_reported_not_ignored`) passes 10/10 in its class — the clock is
+> healthy at the documented cadence, so the plan's "dead 568 minutes" was the sampling error
+> of a window shorter than the cadence it judges. E309: `.genome/*` ignored with
+> `!.genome/overrides/` negated, and `RECORDS_TPL.md` still tracked because `apply_overrides`
+> reads it from the working tree; `tests/test_ad.py` `AdIndex` 8/8 holds both halves by name.
+> G13: `holon audit walk` on the live instance reports 3559 events, one break at seq 1815
+> (`re-linked`), three skipped rows (1812-1814), last verifying event 3559 — a concurrency
+> fork where both branches claim 1811 as parent, not tampering. G14: no holon smoke gate
+> asserts the organism tree's state, and `test_the_boundary_lint_pack_catches_a_conflated_doc`
+> passes, so stack A's gates cannot silently report stack B.
 
 > **The execution order is `my-projects/docs/plans/2026-10-20-the-bridge.md`** (the
 > federation repo) — one plan for the whole A-side program: R the codebase repairs → M

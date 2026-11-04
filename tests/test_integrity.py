@@ -588,9 +588,10 @@ class Doctor(KernelCase):
                         "the cold start says what is missing: agents run as the kernel's user")
 
     def test_an_ungraded_task_cannot_take_the_fast_lane(self):
-        """Measured 2026-11-03 while re-measuring G9. Live, 13 of the 39 ready approval gates are
-        `source='kernel'` incident and retro tasks, every one `lane=full`, and the tempting read
-        was that `work.add_work`'s `lane="full"` default was a bug: the kernel filed its own
+        """Measured 2026-11-03 while re-measuring G9. Live, the 52 approve-stage rows break
+        down as 19 done, 7 cancelled and 26 ready (`status='ready'` is what the kernel counts,
+        and 26 is what `holon status` reports), of which 13 sit in the non-ready terminal groups;
+        the tempting read was that `work.add_work`'s `lane="full"` default was a bug: the kernel filed its own
         cause-finding into the full lane without consulting `intake_lane()`, the rule that asks
         the classifier.
 
@@ -651,6 +652,10 @@ class Doctor(KernelCase):
             stamp.write_text(str(int(_t.time() - age_min * 60)))
             return [f["check"] for f in doctor.run(self.k)]
 
+        def stale_rows(age_min: float):
+            stamp.write_text(str(int(_t.time() - age_min * 60)))
+            return [f for f in doctor.run(self.k) if f["check"] == "heartbeat.stale"]
+
         self.assertNotIn("heartbeat.stale", findings(2),
                          "one cadence (2 min) old is the quietest a healthy clock can be and "
                          "must not be reported stale")
@@ -659,7 +664,15 @@ class Doctor(KernelCase):
                          "boundary, not a cliff that shifts with rounding")
         self.assertIn("heartbeat.stale", findings(10),
                        "well past the threshold must report, or a dead clock goes unnamed")
-
+        self.assertEqual([f["severity"] for f in stale_rows(10)], ["error"],
+                         "the stale branch must escalate to an error, not a warning: the heartbeat "
+                         "turns only `severity == 'error'` findings into incidents (service.py), so a "
+                         "warning is a dead clock the organization notes and never acts on. Measured "
+                         "2026-11-04: downgrading this branch to `warning` left all ten tests in this "
+                         "class green -- the guard above named the CHECK and never the severity, so "
+                         "the exact defect the unreadable branch's guard records lived here too.")
+        self.assertTrue(stale_rows(10), "the severity assertion must read a real finding, not an "
+                                       "empty list — otherwise it proves nothing (the null test)")
     def test_an_unreadable_stamp_is_reported_not_ignored(self):
         """The other half of the same check. A stamp holding prose, or no integer, is not
         evidence of life — but a guard that treats an unreadable stamp as 'silent' is one that

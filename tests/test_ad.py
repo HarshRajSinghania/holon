@@ -152,8 +152,26 @@ class AdIndex(KernelCase):
         ignore = (repo / ".gitignore").read_text()
         self.assertIn(".genome/*", ignore,
                       "the runtime state must still be ignored by name")
+        # Assert what the rule DOES, not only what its text says: measured 2026-11-04, an
+        # assertion on the exemption by substring cannot tell `!.genome/overrides/` from a rule
+        # that ignores the very directory, because the negation CONTAINS the positive text.
+        # Replacing the negation with `.genome/overrides/` (which would drop the override for
+        # every fresh clone) is caught only because the guard reads git's own answer about the
+        # real path, so the two spellings are different outcomes rather than the same string.
+        # A subsequent attempt to defeat it by leaving the negation in place and adding an
+        # explicit ignore for RECORDS_TPL.md after it was measured to be a FALSE ALARM: git's
+        # `check-ignore` still answers "not ignored" (returncode 1), because the directory
+        # negation wins for the file beneath it, so no further assertion is needed there.
+        self.assertTrue(ignored(".genome/index.db"),
+                        "the runtime state must be ignored")
+        self.assertFalse(ignored(".genome/overrides/RECORDS_TPL.md"),
+                         "the exemption must EXCLUDE the authored override, not merely mention "
+                         "it: a rule that ignores this directory still passes a substring "
+                         "assertion on the negation text, and drops the override for every "
+                         "fresh clone")
         self.assertIn("!.genome/overrides/", ignore,
-                      "the authored override must be exempt from the runtime ignore")
+                      "the exemption is written as a negation, which is the only form that "
+                      "re-includes a path the ignore rule already matched")
         # every runtime file stays hidden: these are the ones the rule exists for
         for name in ("index.db", "genome.pre-upgrade", "local-patch.diff",
                      "genome.pre-upgrade-full"):

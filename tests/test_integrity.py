@@ -670,8 +670,14 @@ class Doctor(KernelCase):
         clock = self.k.home.root / ".clock"
         clock.mkdir(parents=True, exist_ok=True)
         (clock / "last_tick").write_text("not-a-timestamp")
-        self.assertIn("heartbeat.stale", [f["check"] for f in doctor.run(self.k)],
-                      "a stamp that holds no unix timestamp is reported, not assumed alive")
+        findings = [f for f in doctor.run(self.k) if f["check"] == "heartbeat.stale"]
+        self.assertEqual([f["severity"] for f in findings], ["error"],
+                         "an unreadable stamp is the heartbeat not proving it is alive, which is "
+                         "the same exposure as a stale one and must reach the same surface. "
+                         "Measured 2026-11-03: asserting only the CHECK name left the severity "
+                         "free -- downgrading this branch back to a warning passed every guard, "
+                         "so an unreadable stamp would have gone unnamed to the Chair while every "
+                         "test stayed green")
 
     def test_a_healthy_instance_is_clean_once_the_chair_key_exists(self):
         self.assertIn("security.auth", rules(doctor.run(self.k)))

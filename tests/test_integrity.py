@@ -792,6 +792,66 @@ class Doctor(KernelCase):
         self.k.wconn.execute("UPDATE outputs SET verified=1, verified_by=? WHERE kind='execute'", (f"emp:{self.dev1}",))
         self.assertIn("separation.verify", rules(doctor.run(self.k)))
 
+    def test_a_check_that_lives_outside_every_reach_is_not_our_critical_failure(self):
+        """Measured 2026-11-04 on the live instance while closing G14.
+
+        The gaps outline said the `career-pipeline` smoke failures were the boundary working:
+        the agent user is denied the organism tree "by design", so those three checks fail and
+        the finding is stack-B noise. Both halves were measured false. The agent user walks to
+        `~/organism/organism/ventures/career-pipeline` with rc=0 and reads a script there, and
+        the failures are real stack-B defects that reproduce for the *kernel* user identically
+        (`company_kb.py` is named at the venture root but lives in `kb/companies/`, so the
+        path is stale for everyone).
+
+        There are 12 such checks, not 3, and they have cost A something real: the incident
+        `Incident: doctor reports smoke.critical` has sat open since 2026-10-30 naming them.
+        A five-day-old open incident about another stack's dead paths is the board lying in the
+        direction that costs work -- the next genuine one arrives beside a stale pile nobody
+        reads.
+
+        The rule is derived on the signal A already owns, the same agnostic shape as `reach()`:
+        a department declares its reach, and a check whose command names nothing inside that
+        reach is a check about somewhere else. It is a warning, not an error, and it says so --
+        it still runs, and it is still visible -- because silencing a live department's failing
+        infrastructure would be the worse defect."""
+        import tempfile
+        from holon.core.paths import Home
+        with tempfile.TemporaryDirectory() as d:
+            k = Kernel(Home(Path(d)), readonly=False)
+            k.auth.init_chair_key()
+            (k.home.root / "own").mkdir()
+            k.config.setdefault("scope", {}).setdefault("dept", {})["mine"] = {
+                "roots": [str(k.home.root / "own")]}
+            k.config["smoke"] = {"every_min": 5, "dept": {"mine": {"checks": [
+                {"name": "inside-the-reach", "cmd": f"test -f {k.home.root / 'own'}/x",
+                 "critical": True, "reason": "a real A-side failure"},
+                {"name": "a-probe", "cmd": "false", "critical": True,
+                 "reason": "a check with no path is a probe, not somewhere else"},
+                {"name": "elsewhere", "cmd": "test -f /elsewhere/x", "critical": True,
+                 "reason": "a check about somewhere else"},
+                {"name": "quoted-inside",
+                 # the live shape: a token interpreter /usr/bin/python3, and the department's own
+                 # path hidden inside the quoted -c body, so a token scan sees only the interpreter
+                 "cmd": "/usr/bin/python3 -c \"import os; os.stat('"
+                         + str(k.home.root / "own" / "y.py")
+                         + "'); assert False\"",
+                 "critical": True, "reason": "a path inside a quoted body is still a path"},
+            ]}}}
+            findings = doctor.run(k)
+            errs = "\n".join(f["message"] for f in findings if f["check"] == "smoke.critical")
+            self.assertIn("inside-the-reach", errs,
+                          "a real A-side critical failure is still an error")
+            self.assertIn("quoted-inside", errs,
+                          "a path inside a quoted script body is inside the reach: it is still an error")
+            self.assertIn("a-probe", errs,
+                          "a check naming no path is a probe and stays an error")
+            self.assertNotIn("elsewhere", errs,
+                             "a check whose every path is outside the department's reach is not our critical failure")
+            warns = [f for f in findings if f["check"] == "smoke.elsewhere"]
+            self.assertTrue(any("elsewhere" in f["message"] for f in warns),
+                            "it is still reported, and it says why it is not ours")
+            k.close()
+
 
 class Operations(KernelCase):
     def test_the_heartbeat_backs_the_instance_up(self):

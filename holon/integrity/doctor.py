@@ -113,6 +113,22 @@ def _smoke_findings(k, add):
                 "these findings appear.")
     for r in results:
         if not r["ok"]:
+            # G14 (2026-11-04): a check whose command names no tree inside the department's own
+            # reach is a check about somewhere else, and its failure is not this organization's
+            # error. Measured on the live instance: 12 of `career-pipeline`'s 20 checks run
+            # scripts that live in the operator's other stack, six failed, and the incident they
+            # opened sat on the Chair's board from 2026-10-30 with nothing on this side able to
+            # close it. It is still reported -- as a warning, not an error -- because silencing a
+            # failing department's infrastructure would be the worse defect, and because the
+            # import that declared these checks is A's own to fix.
+            if r["critical"] and r.get("elsewhere"):
+                add("warning", "smoke.elsewhere",
+                    f"{r['dept'] or 'org'}: {r['name']} failed (exit {r['exit_code']}), and its command "
+                    f"names no tree in that department's reach -- this check is not about a system "
+                    f"this organization operates"
+                    + (f": {r['tail'][-200:]}" if r["tail"] else "")
+                    + " -- fix it in the pool that declared it, or widen that department's reach on purpose")
+                continue
             add("error" if r["critical"] else "warning", "smoke.critical" if r["critical"] else "smoke.check",
                 f"{r['dept'] or 'org'}: {r['name']} failed (exit {r['exit_code']})"
                 + (f" — {r['reason']}" if r["reason"] else "") + (f": {r['tail'][-200:]}" if r["tail"] else "")

@@ -2196,9 +2196,60 @@ class Kernel:
                 except (OSError, tomllib.TOMLDecodeError) as e:
                     found.append((slug, {"name": f"smoke file {f}", "cmd": f"echo {shlex.quote(str(e))}; false",
                                          "critical": True, "reason": "the department's smoke manifest must load"}))
+        # A check's own provenance: the department declares its reach, and a check whose command
+        # names nothing inside it is a check about somewhere else. Measured 2026-11-04 on the live
+        # instance closing G14: 12 of `career-pipeline`'s 20 checks run scripts that live in the
+        # operator's other stack, and six of them fail. A stack-B path defect became
+        # `smoke.critical` on A's doctor, and the incident it opened has sat open since
+        # 2026-10-30 -- five days of the Chair's board carrying an error that is nobody's work
+        # on this side. The two stacks are separate programs (AGENTS.md law 10) and law 2 keeps a
+        # harness name out of here, so this never names a system: it asks the department what it
+        # owns and reports a check that lives outside it.
+        #
+        # Derived, not declared, on the same agnostic signal as `reach()`: a department's own
+        # scope roots. An unparsable command yields no paths and therefore reads as outside,
+        # which is the safe direction -- a command nobody can parse is not one we can excuse, and
+        # the finding stays visible as a warning rather than being silenced as a pass.
         return [{"dept": d, "name": c.get("name") or c.get("cmd", "?"), "cmd": c.get("cmd", "false"),
                  "critical": bool(c.get("critical")), "timeout": int(c.get("timeout") or sm.get("timeout_s") or 60),
-                 "reason": c.get("reason", "")} for d, c in found]
+                 "reason": c.get("reason", ""),
+                 "elsewhere": self._check_elsewhere(d, c.get("cmd", ""))} for d, c in found]
+
+    def _check_elsewhere(self, dept: str | None, cmd: str) -> bool:
+        """True when the command names paths and NONE of them is inside the department's reach.
+
+        A command naming no path at all is not elsewhere: it is a probe of a service or a binary
+        on PATH (`genome doctor`, `curl http://127.0.0.1:20128/v1/models`), and calling that
+        "somewhere else" would silence the only checks that watch a department's runtime.
+        Measured 2026-11-04 on the live instance closing G14: the first draft answered "outside"
+        for a command with no path, so the real A-side failure in the guard's own fixture was
+        downgraded to a warning -- this rule over-reaching in exactly the direction it exists to
+        prevent. So the shape is: paths were named, and every one of them is somewhere else.
+
+        Derived, not declared, on the same agnostic signal as `reach()`: the department's own
+        scope roots. Nothing here names a system or a stack (law 2 and law 10: this derivation
+        never says what "somewhere else" is, only that it is not what this department declared).
+        """
+        roots = [Path(r).expanduser() for r in (self.scope(dept).get("roots") or []) if r]
+        if not roots:
+            return False   # a department declaring no reach owns nothing to be outside of
+        # Scan the command as text, not as tokens: a path hidden inside a quoted script body is
+        # still a path. Measured 2026-11-04 against the live corpus: `career-pipeline`'s
+        # `apply-job-ashby-import` runs `python3 -c "... expanduser('~/organism/.../apply_job.py')"
+        # and `shlex.split` hands the whole body back as ONE token beginning with `import`, so a
+        # token scan saw only `/usr/bin/python3` and graded the department's own failing script as
+        # "somewhere else". Tokens also lose a quoted path containing a space.
+        raw_paths = re.findall(r"(?:^|[\s'\"=(:;])((?:/|~/)[\w@.+~-]+(?:/[\w@.+~-]+)*/?)", cmd or "")
+        saw_path = False
+        for raw in raw_paths:
+            try:
+                p = Path(raw).expanduser()
+            except (RuntimeError, OSError):
+                continue   # an unexpandable token is not a path
+            saw_path = True
+            if any(p == r or r in p.parents for r in roots):
+                return False
+        return saw_path
 
     def run_smoke(self, dept: str | None = None) -> list[dict]:
         """Run the smoke checks (as the agent user under isolation: they exercise what agents use), in the

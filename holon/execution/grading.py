@@ -26,27 +26,21 @@ def verified_in_class(conn: sqlite3.Connection, task_class: str | None) -> int:
         "WHERE o.kind='execute' AND o.verified=1 AND t.task_class=?", (task_class,)).fetchone()[0]
 
 
-def _complexity_floor(env: dict, floor: int, bump) -> int:
-    """The operation's own shape, as an objective grade signal.
+def complexity_floor(steps: list, floor: int, bump) -> int:
+    """What the SHAPE of a piece of work costs, as an objective grade signal.
 
-    The floor already read risk, reach, artifacts and class novelty -- everything about what the
-    work touches. It read nothing about what the work COSTS, so a seven-step operation that wakes
-    six bodies a day and a one-line script graded identically. That is the signal this adds, and
-    it is the one the Chair's objective (lead generation on a token budget) makes load-bearing.
-
-    Measured on the live instance 2026-10-31: one agent run spends ~173K input tokens; the
-    importable revenue operations declare 37.4 agent fires a day. An operation's cost is not a
-    detail of its execution, it is a fact about its risk.
+    The same rules the plan's grade uses, over a list of steps rather than a whole envelope, so
+    that a caller which prices its own shape (an operation, whose plan never passes through
+    `validate`) reads the one rule instead of restating it. Measured on the live instance
+    2026-10-31: one agent run spends ~173K input tokens, and the importable revenue operations
+    declare 37.4 agent fires a day. An operation's cost is not a detail of its execution, it is a
+    fact about its risk.
 
     Three rules, cheapest first, so the script lane is untouched:
       * a step that wakes a body raises the floor -- a decision the kernel cannot make for free
       * many steps raise the floor -- the graph a body must get right, not one call
       * a single script step raises nothing -- the lane the organization runs unattended
     """
-    if env.get("steps") and isinstance(env.get("steps"), (list, tuple)):
-        steps = [s for s in env["steps"] if isinstance(s, dict)]
-    else:
-        return floor
     if not steps:
         return floor
     agents = sum(1 for s in steps if str(s.get("kind") or "") == "agent")
@@ -62,6 +56,28 @@ def _complexity_floor(env: dict, floor: int, bump) -> int:
         bump(2, f"a {len(steps)}-step operation is a graph, not one call: floor G2")
         return 2
     return floor
+
+
+def _complexity_floor(env: dict, floor: int, bump) -> int:
+    """The operation's own shape, as an objective grade signal.
+
+    The floor already read risk, reach, artifacts and class novelty -- everything about what the
+    work touches. It read nothing about what the work COSTS, so a seven-step operation that wakes
+    six bodies a day and a one-line script graded identically. That is the signal this adds, and
+    it is the one the Chair's objective (lead generation on a token budget) makes load-bearing.
+
+    Measured on the live instance 2026-10-31: one agent run spends ~173K input tokens; the
+    importable revenue operations declare 37.4 agent fires a day. An operation's cost is not a
+    detail of its execution, it is a fact about its risk.
+
+    The rules themselves live in `complexity_floor`, because an operation's steps never pass
+    through `validate` (its plan is written by the kernel) and a second copy of the rule would
+    be a second owner of the price.
+    """
+    steps = env.get("steps")
+    if not (steps and isinstance(steps, (list, tuple))):
+        return floor
+    return complexity_floor([s for s in steps if isinstance(s, dict)], floor, bump)
 
 
 def grade_plan(conn: sqlite3.Connection, task: dict, env: dict, cfg: dict | None = None,

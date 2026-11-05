@@ -149,7 +149,7 @@ is not in this file fails `holon lint` — so this file can never drift from the
 | `holon schedule disable` <schedule_id> | chair | disable a schedule |
 | `holon schedule enable` `--force` <schedule_id> | chair | enable a schedule (refuses an unstaffed lane unless --force; the refusal names the hire that works in that department's charter) |
 | `holon schedule list` | any | schedules |
-| `holon operation add` `--intent` `--dept` `--cron` `--on` `--lane` `--command` `--rubric` `--why` `--deliver` `--workdir` `--task-class` `--risk` `--project` <title> | chair | a recurring job, in the cheapest lane that does it reliably (script, fast, full); the classifier enforces the lane and the operation goes to its approver |
+| `holon operation add` `--intent` `--dept` `--cron` `--on` `--lane` `--command` `--steps` `--rubric` `--why` `--deliver` `--workdir` `--task-class` `--risk` `--project` <title> | chair | a recurring job, in the cheapest lane that does it reliably (script, fast, full); the classifier enforces the lane and the operation goes to its approver |
 | `holon operation fire` `--payload` `--payload-file` <schedule_id> | kernel | fire an event operation: the runtime that saw a matching event calls this (once per cooldown, with the payload on the work) |
 | `holon operation import` `--dept` `--apply` <files> | chair | propose operations from legacy cron-job protocols (cron-jobs/*.md); a dry run unless --apply |
 | `holon operation list` | any | operations: lane, schedule, firings and outcomes |

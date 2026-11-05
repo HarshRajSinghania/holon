@@ -293,6 +293,40 @@ and the kernel enforces the lane cheapest first:
   script as work first), or say `--why` an agent must do it;
 - a requested lane cheaper than the model's is raised to it; a costlier one needs `--why`, which
   is recorded in the grade reasons the approver reads;
+
+**An operation's steps (2026-11-05, G7).** A one-command operation is one decision; a revenue
+operation is mostly cheap decisions with one expensive part. `--steps @FILE` (one JSON list, `-` for
+stdin, `@file` for a file) declares that shape, and the operation runs it:
+
+```json
+[{"kind": "script",  "command": "check-the-feed"},
+ {"kind": "branch_one", "depends_on": [0], "on": "failure"},
+ {"kind": "agent",   "command": "write the outreach for the empty cases", "depends_on": [1]}]
+```
+
+The free script runs on every firing; the body is woken only on the days the script came back
+empty. That is the token budget as a property of the work, not a discipline someone keeps by hand.
+
+| Field | Applies to | Meaning |
+|---|---|---|
+| `kind` | every step | one of `vocab.STEP_KINDS`; refused at submit, never guessed |
+| `command` | `script`, `shell`, `call`, `agent` | what the kernel runs, or what the body is asked to do. A kind that does work with no command cannot run and is refused |
+| `depends_on` | every step | indices of EARLIER steps it waits for. The list is the order the DAG is built in, so a step waits on earlier steps only |
+| `on` | `branch_one`, `branch_all` | `success` or `failure` (default `failure`): the outcome the branch is taken on |
+| `retry` | every step | extra attempts for this step, over the kernel's default |
+| `stop_if` | every step | `success`, `failure` or `always`: the outcome that stops the steps after it |
+| `seconds` | `sleep` | how long the kernel waits (a `command` is also accepted) |
+| `title`, `intent` | every step | what the step's own work node is called and asked |
+
+**What the kernel does with it.** Each kind split decides who runs the step, and the DAG materializes
+it: `script`, `shell`, `call` and `sleep` are the kernel's (the node's lane is `script`, its standing
+plan carries the step's own command, and `holon run-script` runs it — no body, no tokens); `agent`
+wakes a body; `branch_one`, `branch_all` are not nodes at all but conditional EDGES, released only
+when their trigger(s) ended in the branch's `on` outcome and cancelled otherwise. One step is one
+work node and one `task_needs` row per edge, which is the DAG the organization already polices: a
+node is ready only when everything it needs is done. The grade follows the shape by the same rule a
+body's plan is graded by: a step that wakes a body is G2, and an operation that can escalate from a
+branch to a body is G3, because it must be checked rather than trusted.
 - with the model off or unsure, the requested lane stands (default `full`).
 A operation runs unattended, so it is a proposal graded at least G2 (G3 when the model judges it
 reaches outside the organization) for the approver that grade names; on approval its schedule

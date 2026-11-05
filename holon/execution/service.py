@@ -1475,7 +1475,7 @@ class Kernel:
                     command: str | None = None, rubric: list[str] | None = None, why: str | None = None,
                     workdir: str | None = None, task_class: str | None = None, risk: str = "normal",
                     project_ref: str | None = None, objective_id: str | None = None, strict: bool = True,
-                    deliver: bool = False, imported: bool = False) -> dict:
+                    deliver: bool = False, imported: bool = False, steps: list | None = None) -> dict:
         """A operation (a cron job, or an event trigger) as a proposal for the approver its grade names. The
         lane is enforced cheapest first: a job the classifier judges deterministic must be a script
         (`command`); a costlier lane than the classifier's needs `why`, which is recorded; a cheaper one
@@ -1485,6 +1485,16 @@ class Kernel:
         `event` (H7): 'event:<pattern>' — no cron; the runtime that sees a matching event fires it
         (`holon operation fire`), once per [events] cooldown_s; Holon never matches events itself."""
         self._validate_routine_args(title, intent, cron=cron, event=event, lane=lane, command=command)
+        if steps is not None:
+            problems = contract.step_problems("steps", steps)
+            if problems:
+                raise ValueError("the operation's steps cannot run: " + "; ".join(problems))
+            if command:
+                raise ValueError("--command is ONE command; --steps declares the operation's own steps "
+                                 "(each with its own command)")
+            if lane is not None:
+                raise ValueError("a steps operation takes its lane from the kinds it declares "
+                                 "(script|shell|call|sleep run by the kernel, agent wakes a body)")
         cls = self.classify(title, intent, command)
         order = list(vocab.LANES)
         notes = []
@@ -1493,6 +1503,16 @@ class Kernel:
             if cls["lane"] and cls["lane"] != "script":
                 notes.append(f"the classifier judged this a {cls['lane']} job ({cls['confidence']:.0%}); the rubric "
                              "judge and the verifier will tell whether the command is enough")
+        elif steps:
+            # The kinds decide the lane: all kernel-run kinds cost nothing per firing, and one
+            # body-waking kind means the operation wakes a body when its branch is taken.
+            lane = "script" if all(s.get("kind") in vocab.STEP_KINDS_KERNEL
+                                   for s in steps if isinstance(s, dict)) else "full"
+            if lane == "full" and cls["lane"] is None and cron and self._fires_often(cron):
+                raise ValueError(f"no decision model is available and this operation fires on '{cron}' "
+                                 f"({self._per_day(cron)} times a day): a step that wakes a body would "
+                                 "dispatch one on every firing. Configure [classifier], or declare the "
+                                 "steps the kernel can run on its own")
         elif cls["lane"] == "script" and not why:
             raise ValueError(f"this job looks deterministic (script, {cls['confidence']:.0%}): give it as a script "
                              "with --command (have the department write one: `holon task add`), or say --why an "
@@ -1557,6 +1577,21 @@ class Kernel:
                            "an import lands OFF until the Chair enables it")
         if grading.RISK_FLOOR.get(risk, 1) > 2:
             reasons.append(f"risk={risk}: floor G{grading.RISK_FLOOR[risk]}")
+        if steps:
+            # The operation's own shape is a cost, and an operation's plan never passes through
+            # `validate` (the kernel writes it), so the shape is priced HERE, by the same rule a
+            # body's plan is priced by. Without this the escalation a steps operation declares
+            # was free: the floor read a prose sentence, and a prose sentence wakes nobody.
+            shape_reasons: list[str] = []
+
+            def _shape_bump(g: int, why: str) -> None:
+                nonlocal floor
+                if g > floor:
+                    floor = g
+                    shape_reasons.append(why)
+
+            floor = grading.complexity_floor([s for s in steps if isinstance(s, dict)], floor, _shape_bump)
+            reasons.extend(shape_reasons)
         dept_id = self.org.dept(dept)["id"]
         # The operational note (2026-10-25 red-team): an operation is a promise that something will run
         # on a schedule, and the approver must know whether the department can keep it. The staffing
@@ -1574,13 +1609,21 @@ class Kernel:
         when = (f"on `{cron}`" if cron else
                 f"when a matching event fires it (`{event}`; the runtime that saw it calls `holon operation fire`, "
                 "once per cooldown)")
-        steps = {"script": f"The kernel runs `{command}` in {workdir or 'its run directory'} {when}; checks and "
-                           "the rubric judge each result.",
-                 "fast": f"{when[0].upper() + when[1:]}, one agent session does the job; the rubric judge checks "
-                         "each result and a verifier sees the unsure ones.",
-                 "full": f"{when[0].upper() + when[1:]}, a fresh piece of work is planned, approved, executed and verified."}[lane]
+        plan_steps = {"script": f"The kernel runs `{command}` in {workdir or 'its run directory'} {when}; checks and "
+                                "the rubric judge each result.",
+                      "fast": f"{when[0].upper() + when[1:]}, one agent session does the job; the rubric judge checks "
+                              "each result and a verifier sees the unsure ones.",
+                      "full": f"{when[0].upper() + when[1:]}, a fresh piece of work is planned, approved, executed and verified."}[lane]
+        if steps:
+            # The prose sentence is the plan's record; the step list is the operation's payload
+            # (where a firing reads it). Two fields, one meaning: the sentence says what happens,
+            # the list is what the DAG runs.
+            declared = " → ".join(f"{i + 1}:{s.get('kind')}" for i, s in enumerate(steps)
+                                  if isinstance(s, dict))
+            plan_steps = (f"{when[0].upper() + when[1:]}, the operation runs its declared steps ({declared}): "
+                          "the kernel runs what it can for free and a body is woken only where a step says so.")
         return self.work.propose(
-            title=f"Operation: {title}", intent=intent, steps=steps,
+            title=f"Operation: {title}", intent=intent, steps=plan_steps,
             apply={"kind": "operation", "cron": cron, "event": event,
                    # I1: an outside-reach import — or one the kernel could not judge — lands OFF;
                    # the Chair enables it per job after review. One bulk approval must never
@@ -1589,7 +1632,8 @@ class Kernel:
             approver=approver, grade=floor, task_class=task_class, dept=dept_id, author=self.actor,
             reasons=reasons + notes, body={"lane": lane, "rubric": list(rubric or []), "classification": cls,
                                            "playbook": playbooks.for_routine(title), "deliver": bool(deliver),
-                                           **({"command": command} if command else {})},
+                                           **({"command": command} if command else {}),
+                                           **({"operation_steps": steps} if steps else {})},
             acceptance="; ".join(rubric) if rubric else None, workdir=workdir, risk=risk, project_ref=project_ref,
             objective_id=objective_id)
 

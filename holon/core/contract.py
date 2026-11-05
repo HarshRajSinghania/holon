@@ -253,7 +253,7 @@ def _artifact_paths(env: "dict") -> "list[str]":
     return problems
 
 
-def _step_problems(path: str, steps: list) -> list[str]:
+def step_problems(path: str, steps: list) -> list[str]:
     """A plan's `steps` list, checked where the grade and the DAG read it.
 
     `vocab.STEP_KINDS` is the one list an operation's step kinds must come from -- it is the
@@ -265,18 +265,56 @@ def _step_problems(path: str, steps: list) -> list[str]:
     A step that is a bare string is a step with no declared kind, and it prices as free; that
     is legitimate prose (`F("text_or_list")` accepts it, and historical plans carry it), so it
     is left alone -- the guard refuses typos, not terseness.
+
+    A step that IS a dict is a step the DAG will dispatch, so it must be runnable as declared
+    (measured 2026-11-05, when the DAG could not run any step at all and this list was the only
+    place the refusal could live): it names its kind, a kind that does work carries the command
+    that work is, a branch says which outcome it branches on, and `retry`/`stop_if` are the
+    shapes the DAG reads. A step that is accepted here and cannot run later is the defect class
+    this repo keeps naming: a field nobody reads, priced as if it were read.
     """
     problems: list[str] = []
     for i, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
         kind = step.get("kind")
-        if kind is not None and kind not in vocab.STEP_KINDS:
+        if kind is None:
+            problems.append(f"{path}[{i}] has no kind: a step the DAG dispatches must name one of "
+                            f"{list(vocab.STEP_KINDS)}")
+        elif kind not in vocab.STEP_KINDS:
             problems.append(f"{path}[{i}].kind {kind!r} is not one of {list(vocab.STEP_KINDS)}")
         for dep in step.get("depends_on") or []:
             if not isinstance(dep, int) or isinstance(dep, bool) or not 0 <= dep < len(steps):
                 problems.append(f"{path}[{i}].depends_on names step {dep!r}, which is not a "
                                  f"step in this list (0..{len(steps) - 1})")
+            elif dep == i:
+                problems.append(f"{path}[{i}].depends_on names itself: a step cannot wait for itself")
+            elif dep > i:
+                problems.append(f"{path}[{i}].depends_on names step {dep}, which comes LATER: the "
+                                 "list is the order the DAG is built in, so a step waits on "
+                                 "earlier steps only")
+        cmd = step.get("command")
+        if kind in ("script", "shell", "call", "agent"):
+            if not isinstance(cmd, str) or not cmd.strip():
+                problems.append(f"{path}[{i}] is a {kind} step with no command: it is work the kernel "
+                                "cannot run")
+        if kind == "sleep":
+            secs = step.get("seconds")
+            if not (isinstance(secs, int) and not isinstance(secs, bool) and secs > 0) \
+                    and not (isinstance(cmd, str) and cmd.strip()):
+                problems.append(f"{path}[{i}] is a sleep step with no seconds: it is a wait the kernel "
+                                "cannot run")
+        if kind in ("branch_one", "branch_all"):
+            on = step.get("on", "failure")
+            if on not in ("success", "failure"):
+                problems.append(f"{path}[{i}].on {on!r} is not one of ['success', 'failure']")
+        stop_if = step.get("stop_if")
+        if stop_if is not None and stop_if not in ("success", "failure", "always"):
+            problems.append(f"{path}[{i}].stop_if {stop_if!r} is not one of "
+                            "['success', 'failure', 'always']")
+        retry = step.get("retry")
+        if retry is not None and (not isinstance(retry, int) or isinstance(retry, bool) or retry < 0):
+            problems.append(f"{path}[{i}].retry {retry!r} is not a count of attempts (0 or more)")
     return problems
 
 
@@ -295,7 +333,7 @@ def validate(stage: str, env: Any) -> dict:
     _fields("", env, {**variants[key], **COMMON}, problems)
     problems.extend(_artifact_paths(env))
     if isinstance(env.get("steps"), list):
-        problems.extend(_step_problems("steps", env["steps"]))
+        problems.extend(step_problems("steps", env["steps"]))
     if problems:
         raise EnvelopeError(problems)
     return env

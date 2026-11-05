@@ -22,7 +22,25 @@ which decisions the Chair has already made (do not re-open them), and what comes
 in the same commit as any change it describes. Hosts, ids and keys stay out of it (AGENTS.md).
 The emitted decision/regression registry is [`docs/RECORDS.md`](RECORDS.md) (`scripts/genome`).
 
-Last updated: 2026-11-03 (**the post-upgrade plan's nine gaps re-validated live**: G12's
+Last updated: 2026-11-05 (**G7 closed: an operation's steps are the DAG a firing runs.**
+Re-measured 2026-11-05 against the distribution and the live instance, the 2026-10-31 outline's
+"done (`7e9ee30`)" was true only of the re-scoped half: that commit wired the *validator*, and
+the outline's own §4 feature — a writer and a reader — was unbuilt, with no live plan output
+carrying a step dict. Worse, the two halves that DID ship disagreed: `grading._complexity_floor`
+prices `kind == "agent"` while `agent` was not in `vocab.STEP_KINDS` and the contract refuses any
+kind that is not, so the rule that prices an escalation was unreachable and an operation that ran
+a free script and woke a body only on failure priced as FREE. What landed on the Chair's
+direction of 2026-11-05: `agent` in the vocabulary with the kind-splits the DAG dispatches on; a
+public `contract.step_problems` validating the shape the DAG runs (kind, command, `on`, `stop_if`,
+`retry`, `seconds`, and edges that wait on earlier steps only); the writer (`holon operation add
+--steps @file`); and the reader (`Work.materialize_steps`: one work node per step, one
+`task_needs` row per edge, each kernel-run step carrying its own command so the kernel's own
+`run_script` runs it with no body, and a `branch_one`/`branch_all` released only when its trigger
+ended in the branch's outcome). The seam is crossed with a real script on disk, in both
+directions. The 2026-10-31 outline is archived; what remains of it is in the register.) The
+2026-11-03 block below is left as written, because it says what was true then.
+
+Last updated before that: 2026-11-03 (**the post-upgrade plan's nine gaps re-validated live**: G12's
 skills export confirmed correct — 11 skills, agent-owned mode 664, only the intended
 `$holon` → `${HOLON:-holon}` substitution in a raw diff; G11's mask-erasure cause confirmed
 unchanged on `~/.jcode` with probe and doctor naming the identical two paths, so

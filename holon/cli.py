@@ -256,6 +256,22 @@ def _text_arg(v: str | None) -> str | None:
     return v
 
 
+def _steps_arg(v: str | None) -> list | None:
+    """An operation's steps: a JSON list, read the way every other text argument is read
+    ('-' for stdin, '@path' for a file). The list is the operation's own shape, so it is
+    refused here rather than half-parsed: a step list that is not a list is not a shape."""
+    if v is None:
+        return None
+    raw = _text_arg(v)
+    try:
+        parsed = json.loads(raw or "")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"--steps must be a JSON list of steps: {e}") from e
+    if not isinstance(parsed, list):
+        raise ValueError(f"--steps must be a JSON list of steps, not {type(parsed).__name__}")
+    return parsed
+
+
 def _me(args, k, required: bool = True) -> str | None:
     """The employee this command acts for: the authenticated employee, or the Chair's --as."""
     p = args.principal
@@ -873,6 +889,10 @@ def cmd_schedule_add(args, k):
              "a matching event fires it (`holon operation fire`), once per cooldown; Holon never matches events"),
          arg("--lane", choices=list(vocab.LANES), help="default: the classifier's"),
          arg("--command", shell=True, help="the script lane: a command the kernel runs (no agent)"),
+         arg("--steps", text=True, help="the operation's own steps as a JSON list: each item a kind from the "
+             "vocabulary (script|shell|call|sleep run by the kernel, agent wakes a body, "
+             "branch_one|branch_all a conditional edge) with its command and its edges; "
+             "'-' for stdin, or @file"),
          arg("--rubric", action="append", default=[], help="a criterion each result is judged on (repeat)"),
          arg("--why", help="required for a costlier lane than the classifier's, or an agent for a deterministic job"),
          arg("--deliver", action="store_true", help="send each result to the Chair through [notify] (a digest)"),
@@ -883,7 +903,7 @@ def cmd_operation_add(args, k):
                       lane=args.lane,
                       command=args.command, rubric=args.rubric, why=args.why, task_class=args.task_class,
                       workdir=str(Path(args.workdir).expanduser().resolve()) if args.workdir else None,
-                      risk=args.risk, project_ref=args.project, deliver=args.deliver)
+                      risk=args.risk, project_ref=args.project, deliver=args.deliver, steps=_steps_arg(args.steps))
     plan = k.work.plan_for_approval(a["id"])
     _out(args, {"approval": a, "plan": plan}, _plan_text(k, a) + "\n\nOn approval the schedule starts.")
 

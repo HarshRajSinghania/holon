@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from holon.core import vocab
+from holon.core import contract, vocab
 from holon.core.db import log_event, now, write_txn
 from holon.core.ids import new_id
 from holon.execution.staleness import fingerprint
@@ -90,6 +90,11 @@ class Rules:
 
 def _lease(seconds: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _is_index(value: Any) -> bool:
+    """A list index: an int that is not a bool (True is 1, and a bool is not an edge)."""
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _row(r: sqlite3.Row | None) -> dict | None:
@@ -288,7 +293,7 @@ class Work:
     def _add_work(self, title: str, intent: str, *, acceptance=None, project_ref=None, parent_id=None, dept=None,
                   assignee=None, requested_by=None, priority=3, source=vocab.CHAIR, task_class=None, risk="normal",
                   workdir=None, due=None, max_attempts=2, needs=None, expand=True, lane="full",
-                  objective_id=None) -> dict:
+                  objective_id=None, blocked_reason=None) -> dict:
         if not title or not title.strip() or not intent or not intent.strip():
             raise ValueError("title and intent are required")
         if source not in vocab.SOURCES:
@@ -327,6 +332,10 @@ class Work:
              lane, objective_id))
         for n in needs:
             self.conn.execute("INSERT INTO task_needs VALUES (?,?)", (tid, n))
+        if blocked_reason:
+            # Why this node is blocked: a stale plan, a sub-task that failed, or -- for a
+            # materialized operation step -- the conditional edge it waits behind.
+            self.conn.execute("UPDATE tasks SET blocked_reason=? WHERE id=?", (blocked_reason, tid))
         self._event("task", tid, None, status, f"work from {source}" + (f", blocked on {len(pending)}" if pending else ""))
         work = self.get(tid)
         if status == "open" and expand:
@@ -334,11 +343,30 @@ class Work:
         return work
 
     def _expand(self, work: dict) -> dict:
+        if self._step_marker(work):
+            # A materialized operation step: the kernel runs a kernel-kind step (its standing
+            # plan is already approved; the execute stage is the kernel's alone), and a
+            # body-kind step runs the ordinary pipeline.
+            return self._expand_step(work)
         if work["lane"] == "fast":
             why = self.rules.fast_refusal(work)
             if why is None:
                 return self.fast_track(work)
             self._set_lane(work, "full", f"not fast: {why}")
+        return self._add_stage(work, self.rules.first_stage(work), [])
+
+    def _expand_step(self, work: dict) -> dict:
+        """A step node's own entry into work. The execute stage is created HERE, when the node
+        opens -- not when it is declared: a stage created while its node waits is claimable, and
+        the script lane's claim query reads the stage, not the node."""
+        step = self._step_of(work) or {}
+        if step.get("kind") in vocab.STEP_KINDS_KERNEL:
+            if self.latest(work["id"], "execute"):
+                return self.get(work["id"])
+            approves = self.stages(work["id"], "approve", "done")
+            if not approves:
+                raise TransitionError(f"step {work['id']} has no approved plan to run")
+            return self._add_stage(work, "execute", [approves[-1]["id"]], assignee=work.get("assignee"))
         return self._add_stage(work, self.rules.first_stage(work), [])
 
     def _set_lane(self, work: dict, lane: str, note: str) -> None:
@@ -852,6 +880,23 @@ class Work:
             dep = self.get(r[0])
             if dep["stage"] is not None or dep["status"] != "blocked":
                 continue
+            # A conditional edge decides first: a step behind a branch runs when the branch is
+            # taken and is cancelled when it is not -- the opposite of the ordinary DAG, where
+            # a dependency that did not finish cancels what waited on it.
+            decision = self._branch_decision(dep, work, status)
+            if decision == "cancel":
+                self._finish(dep, "cancelled", f"the branch was not taken: {work['id']} {status}", actor)
+                continue
+            if decision == "wait":
+                continue
+            if decision == "release":
+                self._set(dep["id"], "open", f"the branch was taken: {work['id']} {status}", actor)
+                self._expand(self.get(dep["id"]))
+                continue
+            stopped = self._step_stop_if(work, status)
+            if stopped:
+                self._finish(dep, "cancelled", f"stopped by {work['id']} (stop_if {stopped})", actor)
+                continue
             if status != "done":
                 self._finish(dep, "cancelled", f"dependency {work['id']} {status}", actor)
             elif all(self.get(n)["status"] == "done" for n in self.needs(dep["id"])):
@@ -996,14 +1041,29 @@ class Work:
             raise TransitionError(f"{plan_id} is not an approved recurring plan")
         src, body = self.get(plan["parent_id"]), self.output(plan_id)["body"]
         lane = body.get("lane")
+        steps = body.get("operation_steps") if isinstance(body.get("operation_steps"), list) else None
         with write_txn(self.conn):
             work = self._add_work(f"{src['title'].removeprefix('Operation: ')} — {label or now()[:16]}", src["intent"],
                                   acceptance=src["acceptance"], project_ref=src["project_ref"], dept=src["dept_id"],
                                   assignee=src["assignee"], requested_by=f"recurring:{plan_id}", priority=src["priority"],
                                   source="schedule", task_class=src["task_class"], risk=src["risk"],
-                                  workdir=src["workdir"], max_attempts=src["max_attempts"], expand=lane == "full",
+                                  workdir=src["workdir"], max_attempts=src["max_attempts"],
+                                  expand=(lane == "full" and not steps),
                                   lane=lane if lane in vocab.LANES else "full", objective_id=src["objective_id"])
-            if lane != "full":
+            if steps:
+                # The operation declares its own shape. The firing is the DAG, not one stage:
+                # each step is a node, each edge is a `task_needs` row, and the branch decides
+                # at firing time (which is the only moment it can). The standing plan carries the
+                # steps, so the plan of the firing is the record of what it ran.
+                body = {k: v for k, v in body.items() if k not in ("apply", "classification")}
+                self._standing_plan(work, {**body, "writes_fingerprint": fingerprint(
+                    work["workdir"], body.get("writes") or [])}, f"copy of recurring plan {plan_id}",
+                    f"recurring:{plan_id}", plan["grade"], grade_floor=plan["grade_floor"],
+                    grade_reasons=plan["grade_reasons"])
+                self.materialize_steps(work, steps, note=f"steps of recurring plan {plan_id}",
+                                       author=f"recurring:{plan_id}", grade=plan["grade"],
+                                       grade_floor=plan["grade_floor"], grade_reasons=plan["grade_reasons"])
+            elif lane != "full":
                 body = {k: v for k, v in body.items() if k not in ("apply", "classification")}
                 a = self._standing_plan(work, {**body, "writes_fingerprint": fingerprint(
                     work["workdir"], body.get("writes") or [])}, f"copy of recurring plan {plan_id}",
@@ -1011,6 +1071,204 @@ class Work:
                     grade_reasons=plan["grade_reasons"])
                 self._add_stage(work, "execute", [a["id"]], assignee=body.get("assignee") or src["assignee"])
         return self.get(work["id"])
+
+    # ── an operation's steps: the DAG one firing runs ────────────────────────
+
+    def materialize_steps(self, work: dict, steps: list, *, note: str, author: str, grade: int,
+                          grade_floor: int | None = None, grade_reasons: list | None = None) -> list[dict]:
+        """An operation's declared steps become the task DAG of one firing.
+
+        One step is one WORK node, never a stage: a stage with two needs breaks the
+        single-predecessor assumption `approved_plan`, `plan_for_approval` and `verify` read
+        (`needs[0]`), and the decompose DAG keeps its edges on work nodes for the same reason.
+        The edge between two steps is a `task_needs` row -- the DAG the organization already
+        polices: a node is ready only when everything it needs is done.
+
+        The kinds (one list, `vocab.STEP_KINDS`):
+          script|shell|call|sleep   the kernel runs it. The node's lane is `script`, its standing
+                                    plan carries the step's OWN command, and no body is woken.
+          agent                     a body is woken. The node's lane is `full` and it runs the
+                                    ordinary pipeline.
+          branch_one|branch_all     not a node at all: a CONDITIONAL EDGE. The step that depends
+                                    on it runs only when the branch's triggers ended in the
+                                    branch's outcome (`on`, default `failure`); otherwise it is
+                                    cancelled and never runs.
+
+        So the construct the 2026-10-31 outline's gate names is one list:
+            [{"kind": "script", "command": "..."},
+             {"kind": "branch_one", "depends_on": [0], "on": "failure"},
+             {"kind": "agent", "command": "...", "depends_on": [1]}]
+        The script runs for free on every firing; the body is woken only on the days the script
+        came back empty. The token budget becomes a property of the work, not a discipline.
+
+        `stop_if` is the other half of the shape: a step that ends in that outcome stops the
+        steps after it (they are cancelled, so the DAG does not keep spending). A failed script
+        step still NOTICES -- the kernel settles the firing as failed and opens the retro it
+        always opens -- because a failure the organization cannot see is the failure this whole
+        mechanism exists to avoid.
+        """
+        problems = contract.step_problems("steps", steps)
+        if problems:
+            raise ValueError("the operation's steps cannot run: " + "; ".join(problems))
+        # The firing WAITS on its steps: it is settled by them (the last child settles its
+        # parent), and a firing that stays open while its steps run never settles at all.
+        self._set(work["id"], "waiting", f"{len([s for s in steps if isinstance(s, dict)])} declared steps", author)
+        branches = {i: {"kind": s["kind"], "on": s.get("on", "failure"),
+                        "triggers": [d for d in (s.get("depends_on") or []) if _is_index(d)]}
+                    for i, s in enumerate(steps)
+                    if isinstance(s, dict) and s.get("kind") in vocab.STEP_KINDS_BRANCH}
+        nodes: dict[int, str] = {}
+        created: list[dict] = []
+        for i, s in enumerate(steps):
+            if not isinstance(s, dict) or s.get("kind") in vocab.STEP_KINDS_BRANCH:
+                continue
+            needs_ids, marker = self._step_deps(i, steps, branches, nodes)
+            lane = "script" if s["kind"] in vocab.STEP_KINDS_KERNEL else "full"
+            cmd = self._step_command(s)
+            node = self._add_work(
+                f"{work['title']} — step {i + 1}: {s.get('title') or s['kind']}",
+                s.get("intent") or cmd or s.get("title") or s["kind"],
+                acceptance=work.get("acceptance"),
+                parent_id=work["id"],
+                dept=work["dept_id"],
+                requested_by=author,
+                source="schedule",
+                task_class=work.get("task_class"),
+                risk=work.get("risk") or "normal",
+                workdir=work.get("workdir"),
+                priority=work.get("priority", 2),
+                needs=needs_ids,
+                lane=lane,
+                expand=False,
+                max_attempts=1 + int(s.get("retry") or 0),
+                blocked_reason=json.dumps({"step": i, **marker}) if marker else json.dumps({"step": i}),
+            )
+            nodes[i] = node["id"]
+            created.append(node)
+            if lane == "script":
+                body = {"kind": "plan", "lane": "script", "command": cmd,
+                        "steps": [cmd or s["kind"]],
+                        "findings": f"step {i + 1} of {work['title']}: {s.get('title') or s['kind']}",
+                        "writes": [],
+                        "writes_fingerprint": fingerprint(work.get("workdir"), [])}
+                self._standing_plan(node, body, note, author, grade,
+                                    grade_floor=grade if grade_floor is None else grade_floor,
+                                    grade_reasons=grade_reasons or [])
+            if node["status"] == "open":
+                # nothing waits for it: it starts now. A node that waits is opened by the
+                # propagation in `_finish`, which is the only thing that may open it.
+                self._expand(self.get(node["id"]))
+        return created
+
+    def _step_deps(self, index: int, steps: list, branches: dict, nodes: dict) -> tuple[list[str], dict | None]:
+        """The nodes a step waits on, and the conditional edge it carries.
+
+        A dependency on a BRANCH resolves to the branch's own triggers: the branch is not a node,
+        it is the condition under which the steps after it run.
+        """
+        s = steps[index]
+        needs: list[str] = []
+        marker: dict | None = None
+        for d in (s.get("depends_on") or []):
+            if not _is_index(d):
+                continue
+            if d in branches:
+                b = branches[d]
+                if marker is not None and marker["on"] != b["on"]:
+                    raise ValueError(f"step {index} waits on two branches with different outcomes: "
+                                     "a step may wait on one branch")
+                marker = {"branch": b["kind"], "on": b["on"]}
+                for t in b["triggers"]:
+                    if t in branches:
+                        for tt in branches[t]["triggers"]:
+                            if tt in nodes:
+                                needs.append(nodes[tt])
+                    elif t in nodes:
+                        needs.append(nodes[t])
+            elif d in nodes:
+                needs.append(nodes[d])
+        if marker is not None:
+            marker["triggers"] = list(dict.fromkeys(needs))
+        return list(dict.fromkeys(needs)), marker
+
+    @staticmethod
+    def _step_command(step: dict) -> str | None:
+        """The command a kernel-run step executes. `sleep` waits; the wait IS the command."""
+        cmd = step.get("command")
+        if isinstance(cmd, str) and cmd.strip():
+            return cmd.strip()
+        if step.get("kind") == "sleep" and isinstance(step.get("seconds"), int):
+            return f"sleep {int(step['seconds'])}"
+        return None
+
+    @staticmethod
+    def _step_marker(work: dict) -> dict | None:
+        """The step marker a materialized node carries, or None (it is not a step node)."""
+        raw = work.get("blocked_reason")
+        if not raw:
+            return None
+        try:
+            marker = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+        return marker if isinstance(marker, dict) and "step" in marker else None
+
+    def _step_of(self, work: dict) -> dict | None:
+        """The step a node stands for, read back from the firing's own plan."""
+        marker = self._step_marker(work)
+        if not marker or not work.get("parent_id"):
+            return None
+        plan = self.approved_plan(work["parent_id"])
+        steps = ((plan or {}).get("output") or {}).get("body", {}).get("operation_steps") or []
+        i = marker.get("step")
+        if isinstance(steps, list) and isinstance(i, int) and 0 <= i < len(steps) and isinstance(steps[i], dict):
+            return steps[i]
+        return None
+
+    def _step_stop_if(self, work: dict, status: str) -> str | None:
+        """A step's `stop_if`: the outcome that stops the steps after it. A graph whose branch
+        has already decided does not keep spending on the rest of itself."""
+        step = self._step_of(work)
+        if not step:
+            return None
+        stop_if = step.get("stop_if")
+        if not stop_if:
+            return None
+        if stop_if == "always":
+            return "always"
+        if stop_if == "success" and status == "done":
+            return "success"
+        if stop_if == "failure" and status in ("failed", "cancelled", "needs_input"):
+            return "failure"
+        return None
+
+    def _branch_decision(self, dep: dict, trigger: dict, status: str) -> str | None:
+        """What a conditional edge does when one of its triggers ends.
+
+        `branch_one` is decided by the FIRST trigger to end: the branch is taken when that
+        trigger ended in the branch's outcome (`on`, default `failure`), and not taken
+        otherwise. `branch_all` waits for every trigger and is taken only when they all ended
+        in the outcome. None means the ordinary DAG applies (this node is not behind a
+        branch); "wait" means the branch has not decided yet.
+        """
+        marker = self._step_marker(dep)
+        if not marker or "branch" not in marker:
+            return None
+        triggers = marker.get("triggers") or []
+        if trigger["id"] not in triggers:
+            return None
+        on = marker.get("on") or "failure"
+        ended = sorted(((t, self.get(t)["status"], self.get(t)["updated_at"]) for t in triggers
+                        if self.get(t)["status"] in TERMINAL), key=lambda r: r[2])
+        hit = (lambda s: s == "done") if on == "success" else \
+            (lambda s: s in ("failed", "cancelled", "needs_input"))
+        if marker["branch"] == "branch_all":
+            if len(ended) < len(triggers):
+                return "wait"
+            return "release" if all(hit(s) for _, s, _ in ended) else "cancel"
+        if not ended:
+            return "wait"
+        return "release" if hit(ended[0][1]) else "cancel"
 
     @staticmethod
     def compact_trajectory(raw: Any, max_steps: int = 12, field_chars: int = 160) -> dict | None:

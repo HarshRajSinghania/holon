@@ -49,7 +49,31 @@ LANES = ("script", "fast", "full")
 # ceiling, and the ceiling is where the cost lives. They wait for a measurement from a real run --
 # specifically, an operation that must walk a variable-length list and proves slower or noisier as
 # N stages than as one looping step.
-STEP_KINDS = ("script", "shell", "branch_one", "branch_all", "sleep", "call")
+#
+# WHAT EACH KIND MEANS, because the DAG dispatches on it (work.materialize_steps):
+#   script      the kernel runs `command` in the script lane: free, no body
+#   shell       the kernel runs `command` as a shell line: free, no body
+#   call        the kernel calls another operation by name: free, no body
+#   sleep       the kernel waits `seconds`: free, no body
+#   agent       a BODY is woken to do this step: the cost the organization prices
+#   branch_one  a conditional edge: it runs its dependants only when exactly one trigger ended
+#               in the branch's outcome (`on`, default `failure`)
+#   branch_all  a conditional edge: it runs its dependants only when every trigger ended in the
+#               branch's outcome (`on`, default `failure`)
+#
+# `agent` was ADDED on 2026-11-05, and the reason is a defect this file's own consumers carried:
+# `grading._complexity_floor` priced `kind == "agent"` (a step that wakes a body raises the floor)
+# and `startswith("branch")` (an operation that escalates from a branch to a body is G3) -- but
+# "agent" was NOT in this tuple, and `contract.step_problems` refuses any kind that is not. So the
+# two rules that price an escalation were unreachable: an operation that runs a free script and wakes
+# a body only when the script came back empty priced as FREE. The vocabulary and the grader disagreed
+# about the same list, and the grader was the one nobody could see. One list, one meaning.
+STEP_KINDS = ("script", "shell", "branch_one", "branch_all", "sleep", "call", "agent")
+# How the kinds split by WHO runs them -- the DAG dispatches on this, so it lives beside the
+# vocabulary it splits (and a guard proves the split covers every kind).
+STEP_KINDS_KERNEL = ("script", "shell", "call", "sleep")   # the kernel runs it: no body, no tokens
+STEP_KINDS_BODY = ("agent",)                               # a body is woken: the cost the grade prices
+STEP_KINDS_BRANCH = ("branch_one", "branch_all")           # a conditional edge, not a node
 STEP_KINDS_DOC = "the loop kinds (for_loop, while_loop) are absent on purpose: a loop repeats work, " \
                  "the DAG and a schedule already do, and a step with no ceiling is the one that spends"
 

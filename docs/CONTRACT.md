@@ -211,8 +211,16 @@ names it. Every adapter has the same five parts:
 
 Shipped adapters: `zeroclaw` (posture aliases, its own skill bundle, the Holon MCP server, Chair
 notifications through its channels, observe profile without write tools), `hermes` (skills as a
-Hermes category, posture toolsets) and `claude-code` (plan mode for observe stages). `generic-shell`
-in the kernel is a template for anything else.
+Hermes category, posture toolsets), `claude-code` (plan mode for observe stages) and
+`deepseek-harness` (a native Harness bundle: the run's brief, identity and department skills as
+Harness context, typed `holon_submit`, `policy.json` enforced in-process; an isolated `dsh`
+headless profile). `generic-shell` in the kernel is a template for anything else.
+
+The `deepseek-harness` adapter ships a second bundle, the **Command Center**: a Web UI page for
+the Chair, not for a body. It reads the same instance over `holon --json --mode ro` and writes
+through a named allowlist of Chair commands. It is a control surface, so it is installed in the
+operator's own Harness profile and never in the isolated run home, and its API route is
+owner-only.
 
 ## 8. Native tools (MCP)
 

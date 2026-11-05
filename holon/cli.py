@@ -69,7 +69,22 @@ class Command:
 REGISTRY: list[Command] = []
 
 
+# Argument metadata the registry carries but argparse does not know. Stripped before
+# `add_argument`, published by `manifest()` so a remote surface never has to guess which values are
+# a filesystem path the kernel will open (`path`) or a command line it will execute (`shell`).
+# A browser supplies values; it does not supply paths or commands, so a form built from the
+# registry can refuse the shapes the Chair has no reason to type there.
+ARG_META = ("path", "shell")
+
+
 def arg(*a, **k) -> tuple[tuple, dict]:
+    """One declared argument.
+
+    `path=True` marks a value that names a file or directory the kernel reads or writes; `shell=True`
+    marks a value the kernel executes as a command line. Both are stripped before argparse sees them
+    and published by `manifest()`, so a remote surface derives its fence from the declaration instead
+    of guessing at it.
+    """
     return a, k
 
 
@@ -86,9 +101,93 @@ def command(path: str, actor: str, help_: str, *args, mutates: bool = True):
 
 
 def manifest() -> list[dict]:
+    """The registry as a client reads it: every command, its actor class, its help, and its
+    arguments with their types.
+
+    `options`/`positionals` stay bare strings for the terminal docs; `args` is the typed form a
+    remote surface builds a form from (the dashboard's console). The two are the same declaration
+    read twice — not two lists, which is what lets a remote surface derive its surface from here
+    instead of hand-maintaining a twin of it.
+    """
     return [{"command": " ".join(c.path), "actor": c.actor, "mutates": c.mutates, "help": c.help,
+             "offerable": _offerable(c),
              "options": [a[0] for a, _ in c.args if a and a[0].startswith("-")],
-             "positionals": [a[0] for a, _ in c.args if a and not a[0].startswith("-")]} for c in REGISTRY]
+             "positionals": [a[0] for a, _ in c.args if a and not a[0].startswith("-")],
+             "args": [s for s in (_arg_schema(a, kw) for a, kw in c.args) if s]} for c in REGISTRY]
+
+
+# Commands a remote surface may not offer, each with its reason. Short and closed, like
+# `mcp.AGENT_BLOCKLIST`: the point is that every entry says WHY, so a reader can judge it.
+CONSOLE_BLOCK = {
+    "mcp": "serves MCP on stdio forever: a remote form cannot hold it",
+    "init": "mints the Chair key and rewrites the instance's config",
+    "hr key": "prints an employee credential",
+    "intake key": "prints an intake credential",
+}
+
+
+def _offerable(c: Command) -> bool:
+    """Whether a browser console may offer this command.
+
+    Derived, never hand-listed: the `kernel` actor class is the heartbeat's own seat (the
+    registry says so), and a browser must not drive the runtime's internals — `dispatch` claims
+    work for a body, `run finish` closes a run, `broker` serves a socket forever. Everything else
+    the Chair may run is offered; the block list above holds the few that are not a form.
+    """
+    if c.actor == "kernel" or " ".join(c.path) in CONSOLE_BLOCK:
+        return False
+    return True
+
+
+# Argument metadata the registry carries but argparse does not know.
+#
+# `path` marks a value that names a file or directory the kernel reads or writes; `shell` marks a
+# value the kernel executes as a command line; `text` marks a value the kernel may resolve as a
+# FILE (`@path`) or as stdin (`-`). A remote surface supplies values, not paths and not commands:
+# a browser has no view of the instance's filesystem, and a command line is code. The kernel is
+# where that knowledge lives, so the declaration carries it and every surface derives its fence
+# from here.
+ARG_META = ("path", "shell", "text")
+
+
+def _arg_schema(a: tuple, kw: dict) -> dict | None:
+    """One declared argument as a remote client needs it.
+
+    Hidden arguments (`SUPPRESS` help), `--as` (impersonation) and `--intake-key` (a door
+    credential) are dropped: a remote surface supplies values, never who they are acting as and
+    never a credential — an MCP caller carries its own principal, and a browser console has none
+    to carry.
+    """
+    if kw.get("help") is argparse.SUPPRESS:
+        return None
+    positional = not a[0].startswith("-")
+    name = kw.get("dest") or a[-1].lstrip("-").replace("-", "_")
+    if name in ("as_", "intake_key"):
+        # impersonation and a door credential: a remote surface supplies values, never who they
+        # are acting as and never a credential — an MCP caller carries its own principal, and a
+        # browser console has none to carry.
+        return None
+    action = kw.get("action")
+    if action == "store_true":
+        kind = "boolean"
+    elif action == "append" or kw.get("nargs") == argparse.REMAINDER:
+        kind = "array"
+    elif kw.get("type") is int:
+        kind = "integer"
+    elif kw.get("type") is float:
+        kind = "number"
+    else:
+        kind = "string"
+    return {"name": name, "flag": a[0], "kind": kind, "positional": positional,
+            "required": (positional and kw.get("nargs") not in ("?", argparse.REMAINDER))
+                        or bool(kw.get("required")),
+            "choices": list(kw["choices"]) if kw.get("choices") else None,
+            "default": kw.get("default"),
+            "metavar": kw.get("metavar") or a[-1].lstrip("-"),
+            "help": kw.get("help") if isinstance(kw.get("help"), str) else None,
+            "freeform": kw.get("nargs") == argparse.REMAINDER,
+            "path": bool(kw.get("path")), "shell": bool(kw.get("shell")),
+            "text": bool(kw.get("text"))}
 
 
 # The actor classes a chat channel may offer the Chair as a button (2026-10-23). `chair` is the
@@ -240,9 +339,9 @@ def cmd_org(args, k):
 
 
 @command("dept create", "chair", "create a department from a bylaws profile",
-         arg("slug"), arg("--name", required=True), arg("--mission", help="text, '-' for stdin, or @file"),
+         arg("slug"), arg("--name", required=True), arg("--mission", text=True, help="text, '-' for stdin, or @file"),
          arg("--parent", help="parent department slug (default: executive)"),
-         arg("--profile", default="light", help="light | standard | <instance profile> | file.toml"))
+         arg("--profile", default="light", path=True, help="light | standard | <instance profile> | file.toml"))
 def cmd_dept_create(args, k):
     from holon.execution import bylaws
     d = k.org.create_dept(args.slug, args.name, _text_arg(args.mission), args.parent,
@@ -261,7 +360,7 @@ def cmd_dept_list(args, k):
 
 @command("dept export", "chair", "write a department's archive: its profile, its people (never their "
          "keys), its reach, its checks, its secret PATHS, its operations and its knowledge bases (G12)",
-         arg("slug"), arg("--to", required=True, help="the directory to write the archive into"))
+         arg("slug"), arg("--to", required=True, path=True, help="the directory to write the archive into"))
 def cmd_dept_export(args, k):
     out = k.export_department(args.slug, args.to)
     _out(args, out, f"archive: {out['path']}\n{out['dept']}: {out['employees']} employees, "
@@ -271,7 +370,7 @@ def cmd_dept_export(args, k):
 
 @command("dept import", "chair", "create a department from an archive (G12). The archive's checksums "
          "are verified first: a tampered archive is refused, and nothing is created. Every operation "
-         "lands unapproved: an import is not an approval", arg("archive"))
+         "lands unapproved: an import is not an approval", arg("archive", path=True))
 def cmd_dept_import(args, k):
     out = k.import_department(args.archive)
     _out(args, out, f"{out['dept']}: {out['employees']} employees, {out['operations']} operations "
@@ -281,7 +380,7 @@ def cmd_dept_import(args, k):
 @command("venture import", "chair", "read a venture's four artifacts (_org.yaml, cron-jobs/, smoke.yaml, "
          "scripts/) and make them a department. A dry run unless --apply; every operation lands "
          "unapproved, because an import is not an approval",
-         arg("path"), arg("--dept", required=True, help="the department slug to create"),
+         arg("path", path=True), arg("--dept", required=True, help="the department slug to create"),
          arg("--apply", action="store_true", help="create the department and its operations"))
 def cmd_venture_import(args, k):
     from holon.execution import ventures
@@ -328,7 +427,7 @@ def cmd_dept_profiles(args, k):
 
 @command("hr hire", "chair", "hire an employee into a slot (or roles) of a department",
          arg("--name", required=True), arg("--title", required=True), arg("--dept", required=True),
-         arg("--jd", required=True, help="job description: text, '-' for stdin, or @file"),
+         arg("--jd", required=True, text=True, help="job description: text, '-' for stdin, or @file"),
          arg("--slot", help="fill this slot of the department's profile (gives its roles)"),
          arg("--roles", help="comma list of " + ",".join(vocab.ROLES)),
          arg("--driver", required=True, help="harness driver name (see `holon drivers`)"),
@@ -451,12 +550,12 @@ def cmd_emp_card(args, k):
 # ── work ──────────────────────────────────────────────────────────────────
 @command("task add", "intake", "add work (a root, or nested under --parent). The Chair acts directly; "
          "an intake key (G4) files into its own department only, at its floor",
-         arg("title"), arg("--intent", required=True, help="text, '-' for stdin, or @file"),
+         arg("title"), arg("--intent", required=True, text=True, help="text, '-' for stdin, or @file"),
          arg("--acceptance", help="how done will be judged"), arg("--project", help="project ref, e.g. traj:<node>"),
          arg("--parent"), arg("--after", action="append", default=[], help="work this waits for (repeat)"),
          arg("--dept"), arg("--assign", help="employee id"), arg("--priority", type=int, default=3,
                                                                   choices=list(vocab.PRIORITIES)),
-         arg("--task-class"), arg("--risk", default="normal", choices=list(vocab.RISKS)), arg("--workdir"),
+         arg("--task-class"), arg("--risk", default="normal", choices=list(vocab.RISKS)), arg("--workdir", path=True),
          arg("--due"), arg("--max-attempts", type=int, default=2),
          arg("--lane", default="auto", choices=["auto", "fast", "full"],
              help="auto: the decision model picks; fast runs only if the kernel grades the work G0"),
@@ -767,17 +866,17 @@ def cmd_schedule_add(args, k):
 
 @command("operation add", "chair", "a recurring job, in the cheapest lane that does it reliably (script, fast, full); "
          "the classifier enforces the lane and the operation goes to its approver", arg("title"),
-         arg("--intent", required=True, help="what each firing does: text, '-' for stdin, or @file"),
+         arg("--intent", required=True, text=True, help="what each firing does: text, '-' for stdin, or @file"),
          arg("--dept", required=True),
          arg("--cron", help="5-field cron, e.g. '0 7 * * *'; or --on for an event trigger"),
          arg("--on", metavar="event:<pattern>", help="fire on events instead of a cron: the runtime that sees "
              "a matching event fires it (`holon operation fire`), once per cooldown; Holon never matches events"),
          arg("--lane", choices=list(vocab.LANES), help="default: the classifier's"),
-         arg("--command", help="the script lane: a command the kernel runs (no agent)"),
+         arg("--command", shell=True, help="the script lane: a command the kernel runs (no agent)"),
          arg("--rubric", action="append", default=[], help="a criterion each result is judged on (repeat)"),
          arg("--why", help="required for a costlier lane than the classifier's, or an agent for a deterministic job"),
          arg("--deliver", action="store_true", help="send each result to the Chair through [notify] (a digest)"),
-         arg("--workdir"), arg("--task-class"), arg("--risk", default="normal", choices=list(vocab.RISKS)),
+         arg("--workdir", path=True), arg("--task-class"), arg("--risk", default="normal", choices=list(vocab.RISKS)),
          arg("--project"))
 def cmd_operation_add(args, k):
     a = k.add_operation(args.title, _text_arg(args.intent), dept=args.dept, cron=args.cron, event=args.on,
@@ -794,7 +893,7 @@ def cmd_operation_add(args, k):
          arg("--payload", help="what the event carried, taken literally: never a file reference — a runtime "
              "relaying channel text MUST NOT let that text name a path. Use --payload-file for a file the "
              "runtime itself chose"),
-         arg("--payload-file", help="read the payload from this file (the runtime's own choice of path)"))
+         arg("--payload-file", path=True, help="read the payload from this file (the runtime's own choice of path)"))
 def cmd_operation_fire(args, k):
     payload = args.payload
     if args.payload_file:
@@ -924,7 +1023,7 @@ def venture_import(pool, dept: str, dry_run: bool = True, k=None) -> dict:
 
 
 @command("operation import", "chair", "propose operations from legacy cron-job protocols (cron-jobs/*.md); a dry "
-         "run unless --apply", arg("files", nargs="+"), arg("--dept", required=True),
+         "run unless --apply", arg("files", nargs="+", path=True), arg("--dept", required=True),
          arg("--apply", action="store_true", help="create the operation proposals (each goes to its approver)"))
 def cmd_operation_import(args, k):
     rows = []
@@ -978,10 +1077,10 @@ def cmd_smoke(args, k):
 
 
 @command("objective add", "chair", "an objective: decomposed into work and operations, reviewed against its key results "
-         "until they are met", arg("title"), arg("--intent", required=True, help="text, '-' for stdin, or @file"),
+         "until they are met", arg("title"), arg("--intent", required=True, text=True, help="text, '-' for stdin, or @file"),
          arg("--dept", required=True), arg("--key-result", action="append", default=[], dest="key_results",
                                            help="a measurable result that says the objective is met (repeat)"),
-         arg("--project"), arg("--workdir"))
+         arg("--project"), arg("--workdir", path=True))
 def cmd_objective_add(args, k):
     o = k.add_objective(args.title, _text_arg(args.intent), dept=args.dept, key_results=args.key_results,
                         project_ref=args.project,
@@ -1034,7 +1133,7 @@ def cmd_playbook_show(args, k):
 
 
 @command("classify", "employee", "ask the decision model which lane a job needs (script, fast, full)",
-         arg("title"), arg("--intent", required=True, help="text, '-' for stdin, or @file"), arg("--command"),
+         arg("title"), arg("--intent", required=True, text=True, help="text, '-' for stdin, or @file"), arg("--command", shell=True),
          mutates=False)
 def cmd_classify(args, k):
     c = k.classify(args.title, _text_arg(args.intent), args.command)
@@ -1088,7 +1187,7 @@ def _sender(args, k) -> str:
 
 
 @command("msg send", "employee", "message a colleague, a department, the organization or the Chair",
-         AS, arg("to", help="emp:<id> | dept:<slug> | org | chair"), arg("body"), arg("--task"),
+         AS, arg("to", help="emp:<id> | dept:<slug> | org | chair"), arg("body", text=True), arg("--task"),
          arg("--kind", choices=list(vocab.MESSAGE_KINDS),
              help="the message kind; the default is `dm`, or `channel` to a department or the org. "
                   "Send `question` or `request` to the Chair and the digest owes it until it is answered "
@@ -1110,7 +1209,7 @@ def cmd_msg_inbox(args, k):
 
 
 @command("msg reply", "employee", "answer a message, in the thread it belongs to",
-         AS, arg("message", help="the message id you are answering"), arg("body"),
+         AS, arg("message", help="the message id you are answering"), arg("body", text=True),
          arg("--literal", action="store_true", help="the body is literal text: a runtime relaying it must not "
              "let '@path' or '-' choose a file"))
 def cmd_msg_reply(args, k):
@@ -1128,8 +1227,8 @@ def cmd_msg_thread(args, k):
 
 
 @command("msg request", "employee", "ask another department for work (it becomes work there)",
-         AS, arg("dept"), arg("title"), arg("--intent", required=True, help="text, '-' for stdin, or @file"),
-         arg("--acceptance", help="text, '-' for stdin, or @file"),
+         AS, arg("dept"), arg("title"), arg("--intent", required=True, text=True, help="text, '-' for stdin, or @file"),
+         arg("--acceptance", text=True, help="text, '-' for stdin, or @file"),
          arg("--service", metavar="unit:service", help="a declared service (K-5): validated against the "
              "bylaws registry, and named in the request so the performer knows which entry point to run"),
          arg("--priority", type=int, default=3, choices=list(vocab.PRIORITIES)))
@@ -1150,7 +1249,7 @@ def cmd_msg_request(args, k):
 # ── knowledge ─────────────────────────────────────────────────────────────
 @command("memory add", "employee", "add to institutional memory",
          AS, arg("--scope", required=True, help="emp:<id> | dept:<slug> | org | <project ref> | class:<name>"),
-         arg("--kind", required=True, choices=list(vocab.MEMORY_KINDS)), arg("--content", required=True),
+         arg("--kind", required=True, choices=list(vocab.MEMORY_KINDS)), arg("--content", required=True, text=True),
          arg("--provenance"), arg("--confidence", default="medium", choices=list(vocab.CONFIDENCE)),
          arg("--pin", action="store_true"),
          arg("--literal", action="store_true", help="the content is literal text: a runtime relaying it must not "
@@ -1321,8 +1420,13 @@ def cmd_recall(args, k):
         out.append("## Verified results (gold standards)\n\n" + "\n".join(
             f"- {g['work_id']}: {(g['summary'] or '')[:200]}" for g in gold))
     # R-2's sensor: the recall records what it found, and surfaced items gain their use
-    k.memory.log_recall(q, items=len(items), episodes=len(eps), skills=len(hits), gold=len(gold))
-    k.memory.mark_used([i["id"] for i in items])
+    # The read-only door is a promise about the session, not only about the stores: a recall that
+    # writes its sensor row is a write, so under `--mode ro` the sensor is skipped rather than the
+    # read failing (measured 2026-11-04: the native tool's recall returned "attempt to write a
+    # readonly database" and the answer was lost after it had already been computed).
+    if not k.readonly:
+        k.memory.log_recall(q, items=len(items), episodes=len(eps), skills=len(hits), gold=len(gold))
+        k.memory.mark_used([i["id"] for i in items])
     if not out:
         _out(args, [], "no matches in memory, episodes, skills, playbooks or gold standards")
         return
@@ -1426,8 +1530,34 @@ def cmd_skill_invoke(args, k):
     _out(args, r, r["text"])
 
 
+# ── the instance's own configuration (holon.toml) ──────────────────────────
+
+@command("config show", "chair", "the effective configuration: every key, its value, and whether holon.toml "
+         "sets it or the kernel's default applies", mutates=False)
+def cmd_config_show(args, k):
+    from holon.execution import config as config_mod
+    value = config_mod.read(k.home)
+    _out(args, value,
+         "\n".join(f"[{section}] {key} = {row['value']!r} ({row['source']})"
+                   for section, row in sorted(value["sections"].items())
+                   for key, row in sorted(row.items()) if row["type"] != "table"))
+
+
+@command("config set", "chair", "set one configuration key in holon.toml (the value is typed by the "
+         "value already in force, and the file is re-parsed before the change is accepted)",
+         arg("section"), arg("key"), arg("value", help="the new value: a number, true/false, "
+                                           "a JSON list, or text"))
+def cmd_config_set(args, k):
+    from holon.execution import config as config_mod
+    try:
+        r = config_mod.set_key(k.home, args.section, args.key, args.value)
+    except config_mod.ConfigError as e:
+        raise ValueError(str(e)) from e
+    _out(args, r, f"[{r['section']}] {r['key']} = {r['value']!r} (was {r['previous']!r})")
+
+
 @command("skill fork", "chair", "copy a skill (or one file) into the instance or --dept layer to tailor it",
-         arg("name"), arg("--file"), arg("--dept"))
+         arg("name"), arg("--file", path=True), arg("--dept"))
 def cmd_skill_fork(args, k):
     written = k.skills.fork(args.name, args.dept, args.file)
     _out(args, [str(p) for p in written], "\n".join(f"forked {p}" for p in written) or "already tailored")
@@ -1449,7 +1579,7 @@ def cmd_skill_check(args, k):
 
 
 @command("skill export", "chair", "write resolved, rendered skills to a directory a harness loads skills from",
-         arg("--to", required=True), arg("--name", action="append"), arg("--dept"))
+         arg("--to", required=True, path=True), arg("--name", action="append"), arg("--dept"))
 def cmd_skill_export(args, k):
     # exported skills serve every instance and run: `$HOLON` is the kernel command each run exports, and
     # pull-mode sessions fall back to `holon` on PATH with HOLON_HOME set
@@ -1459,7 +1589,7 @@ def cmd_skill_export(args, k):
 
 
 @command("contract schemas", "any", "the result contract as JSON Schemas (--write DIR to publish)",
-         arg("--write", metavar="DIR"), arg("--stage", choices=list(vocab.STAGES)), mutates=False)
+         arg("--write", metavar="DIR", path=True), arg("--stage", choices=list(vocab.STAGES)), mutates=False)
 def cmd_contract_schemas(args, k):
     from holon.core import contract
     stages = [args.stage] if args.stage else list(vocab.STAGES)
@@ -1584,7 +1714,7 @@ def cmd_doctor(args, k):
 
 
 @command("backup", "chair", "a consistent copy of this instance (databases, config, skills, bylaws; never secrets)",
-         arg("--to", required=True, metavar="DIR"), arg("--with-runs", action="store_true", help="include run directories"))
+         arg("--to", required=True, metavar="DIR", path=True), arg("--with-runs", action="store_true", help="include run directories"))
 def cmd_backup(args, k):
     from holon.integrity import backup
     out = backup.backup(k, args.to, args.with_runs)
@@ -1611,7 +1741,8 @@ def cmd_gc(args, k):
 
 @command("keys list", "chair", "the Chair key files in the default key dir, and which belong to this "
          "instance -- a scratch instance's key outlives it; deletion is yours, by hand",
-         arg("--orphans", action="store_true", help="only the files this instance does not claim"))
+         arg("--orphans", action="store_true", help="only the files this instance does not claim"),
+         mutates=False)
 def cmd_keys_list(args, k):
     d = Path("~/.config/holon/keys").expanduser()
     mine = Path(k.auth.chair_key_path()).name
@@ -1654,7 +1785,7 @@ def cmd_incident_waive(args, k):
 
 
 @command("guards", "chair", "the registered incident guards (K-2): what re-checks a fixed defect on "
-         "every heartbeat, and the incident each came from")
+         "every heartbeat, and the incident each came from", mutates=False)
 def cmd_guards(args, k):
     # `check` is a reserved word in SQLite, so the column must be quoted: unquoted, the query
     # dies at parse time with `sqlite3.OperationalError: near "check"` and the command reports
@@ -1774,8 +1905,8 @@ def cmd_bylaws_emit(args, k):
 @command("bylaws draft", "employee", "propose a unit manifest from a capability your department keeps "
          "running ad hoc (A10): it lands in bylaws/drafts/ and changes nothing until the Chair promotes it",
          arg("slug"), arg("--charter", required=True), arg("--service", required=True),
-         arg("--command", required=True), arg("--accepts"), arg("--returns"), arg("--note"),
-         arg("--args"), arg("--health"), arg("--pool-of", action="append", default=[]),
+         arg("--command", required=True, shell=True), arg("--accepts"), arg("--returns"), arg("--note"),
+         arg("--args"), arg("--health", shell=True), arg("--pool-of", action="append", default=[]),
          arg("--owner"))
 def cmd_bylaws_draft(args, k):
     """The pooling workflow's proposal half: an employee names a script their department keeps
@@ -1799,7 +1930,7 @@ def cmd_bylaws_promote(args, k):
     _out(args, {"unit": str(p)}, f"promoted {args.slug} -> {p}\n  `holon bylaws sync` to load it")
 
 
-@command("restore", "chair", "restore a backup into this instance (verifies its checksums first)", arg("path"),
+@command("restore", "chair", "restore a backup into this instance (verifies its checksums first)", arg("path", path=True),
          arg("--force", action="store_true", help="required: the instance's current state is replaced"),
          arg("--verify-only", action="store_true"))
 def cmd_restore(args, k):
@@ -1817,12 +1948,12 @@ def cmd_restore(args, k):
 @command("adapter test", "chair", "run the harness conformance suite against a driver, or the "
          "supervisor conformance suite against a supervisor command (CONTRACT §12)",
          arg("driver", nargs="?", help="a driver name — omit with --supervisor"),
-         arg("--workdir", help="scratch directory (default: a temporary one)"),
+         arg("--workdir", path=True, help="scratch directory (default: a temporary one)"),
          arg("--clauses", help="comma list of clauses to run (default: all)"),
          arg("--timeout", type=float, metavar="S",
              help="the whole run's budget in seconds (default: 3600); clauses past it report "
                   "out of time rather than a broken harness"),
-         arg("--supervisor", metavar="CMD", help="test this supervisor command: it reads the prepared "
+         arg("--supervisor", metavar="CMD", shell=True, help="test this supervisor command: it reads the prepared "
              "run JSON on stdin, runs the body, renews the lease, enforces the timeout, and hands the "
              "body in (`holon adapter test --supervisor '…'` — the scripted fixture spends no model calls)"))
 def cmd_adapter_test(args, k):
@@ -1858,8 +1989,8 @@ def cmd_broker(args, k):
 
 
 @command("isolation plan", "chair", "the one-time setup that runs agents as [isolation] agent_user: a script for "
-         "root and the ACLs this user applies", arg("--write", metavar="FILE", help="write the root script here"),
-         mutates=False)
+         "root and the ACLs this user applies", arg("--write", metavar="FILE", path=True, help="write the root script here"),
+         mutates=True)
 def cmd_isolation_plan(args, k):
     from holon.execution import isolation
     plan = isolation.setup_plan(k)
@@ -2046,7 +2177,8 @@ def build_parser() -> argparse.ArgumentParser:
             parent = groups[key]
         sp = parent.add_parser(c.path[-1], help=c.help, description=c.help)
         for a, kw in c.args:
-            sp.add_argument(*a, **kw)
+            # the registry's own metadata (`path`, `shell`) is for the manifest, not for argparse
+            sp.add_argument(*a, **{k: v for k, v in kw.items() if k not in ARG_META})
         sp.set_defaults(_command=c)
     return p
 

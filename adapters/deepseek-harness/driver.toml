@@ -1,0 +1,29 @@
+# Holon driver for DeepSeek Harness (one headless run: `dsh --profile <profile> "<task>"`).
+#
+# THIS IS THE TEMPLATE. adapters/deepseek-harness/install.py writes the live driver into
+# $HOLON_HOME/config/drivers/deepseek-harness.toml, pinning the absolute `dsh` launcher, the
+# instance's isolated DSH_HOME, and the profile that carries the holon-native bundle. The bare
+# command here is what `holon adapter test` copies into a scratch instance after an install.
+#
+# The first message is the employee's identity card plus the stage brief ({briefing}); the
+# holon-native bundle also registers the run's department-resolved skills, injects the run facts
+# and enforces policy.json in-process. The result is a file: the body hands it in with the native
+# holon_submit tool (which writes result.json and calls `holon submit`) or writes result.json
+# itself. A JSON object printed as the final message is not read: use the tool.
+#
+# DSH_PERMISSION_MODE=danger-full-access is deliberate. An unattended body has no one to answer
+# an approval prompt, and a run's reach is Holon's own policy.json, not the Harness's workspace
+# sandbox: the bundle refuses writes and non-read-only commands in the observe posture, and the
+# kernel's working-directory fingerprint remains the backstop (read_only_enforced = false).
+name = "deepseek-harness"
+command = "dsh --profile holon {briefing}"
+cwd = "{workdir}"
+timeout_s = 3600
+result = "file"
+read_only = ""
+act_args = ""
+read_only_enforced = false
+build_cmd = "dsh --version"
+
+[env]
+DSH_PERMISSION_MODE = "danger-full-access"

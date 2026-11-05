@@ -144,9 +144,18 @@ class Library:
 
     # ── authoring ─────────────────────────────────────────────────────────
     def fork(self, name: str, dept: str | None = None, file: str | None = None) -> list[Path]:
-        """Copy the resolved skill (or one file of it) into the instance or department layer for tailoring."""
+        """Copy the resolved skill (or one file of it) into the instance or department layer for tailoring.
+
+        The file name is validated the way `resolve` validates it: a name that climbs out of the
+        skill (`../..`) is refused. Without that, `skill fork x --file ../../SECRET` copied a file
+        from OUTSIDE the library into the instance (measured 2026-11-05 while auditing the
+        Command Center's argument surface): `fork` built the paths by hand where `resolve` refuses
+        them, so the one reader that checks names did not check files.
+        """
         if not self.instance:
             raise SkillError("forking needs an instance (HOLON_HOME)")
+        if file is not None and (".." in Path(file).parts or Path(file).is_absolute()):
+            raise SkillError(f"invalid skill file {file!r}")
         target = self.instance / (f"@{dept}" if dept else "") / name
         files = [file] if file else ["SKILL.md"] + self.meta(name, dept)["files"]
         written = []

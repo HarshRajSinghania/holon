@@ -1792,3 +1792,31 @@ class MarkdownTables(KernelCase):
                          "a citation names a .md file this repository does not carry: "
                          + "; ".join(f"{rel} (cited by {', '.join(sorted(set(srcs)))})"
                                      for rel, srcs in sorted(broken.items())))
+
+class RegistryMutatesFlagTest(unittest.TestCase):
+    """The registry's `mutates` flag is what `--mode ro` and every read surface trust.
+
+    Live defect (2026-11-05, red-team of the operator dashboard): `guards` and `keys list` are
+    pure reads declared `mutates=True`, so `--mode ro` refused them and every read surface that
+    called them showed an empty panel for a reason nobody could see; `isolation plan` ALWAYS
+    writes a root script but was declared `mutates=False`, so a read-only surface could write.
+    """
+
+    def test_a_command_that_only_reads_is_not_declared_mutating(self) -> None:
+        from holon import cli
+        for path in (("guards",), ("keys", "list")):
+            command = next(c for c in cli.REGISTRY if c.path == path)
+            self.assertFalse(command.mutates,
+                             f"`holon {' '.join(path)}` only reads; declaring it mutating refuses "
+                             f"it under --mode ro and blanks every read surface that calls it")
+
+    def test_a_command_that_writes_is_declared_mutating(self) -> None:
+        from holon import cli
+        command = next(c for c in cli.REGISTRY if c.path == ("isolation", "plan"))
+        self.assertTrue(command.mutates,
+                        "`holon isolation plan` writes the root setup script every run; a "
+                        "read-only surface must not be able to call it")
+
+
+if __name__ == "__main__":
+    unittest.main()

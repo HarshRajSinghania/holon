@@ -19,6 +19,8 @@ extracting them is the whole of this fix. The three that remain are named as a b
 run still cannot see.
 """
 
+from pathlib import Path
+
 from holon import cli
 from holon.execution.ventures import _would_refuse
 from tests.helpers import KernelCase

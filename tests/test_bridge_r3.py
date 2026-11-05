@@ -67,6 +67,7 @@ class OneInstallerSeam(KernelCase):
             "operant": ("pin_binary", "export_skills", "write_driver", "verify"),
             "hermes": ("pin_binary", "export_skills", "write_driver", "verify"),
             "zeroclaw": ("pin_binary", "export_skills", "write_driver", "verify"),
+            "deepseek-harness": ("pin_binary", "export_skills", "write_driver", "verify"),
         }
         for adapter, needed in specs.items():
             text = (ADAPTERS / adapter / "install.py").read_text()

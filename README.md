@@ -106,6 +106,7 @@ failures and repeated rejections queue a retro whose actions become new work.
 | `adapters/jcode` | [jcode](https://github.com/1jehuang/jcode) | about 3 MB per headless session |
 | `adapters/operant` | [Operant](https://github.com/ishan-parihar/operant) | Rust harness; the organization runtime (its `docs/agentic-os/` has the integration plan) |
 | `adapters/claude-code` | Claude Code | driver only; not yet through conformance |
+| `adapters/deepseek-harness` | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | native bundle (brief, skills, typed submit, policy guard) over an isolated headless profile; an operator Command Center UI (`dashboard/`) for the Chair |
 
 Anything else: copy `holon/execution/drivers/generic-shell.toml` into your instance's
 `config/drivers/` and point it at whatever runs one agent turn — or use **pull mode**: any agent

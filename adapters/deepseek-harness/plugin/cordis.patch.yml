@@ -1,0 +1,18 @@
+# holon-native: the Holon organization as native context and tools.
+#
+# The row is deliberately configuration-light. An isolated run receives HOLON_HOME and HOLON from
+# the kernel's environment; an operator session is pointed at an instance by
+# $DSH_HOME/holon.json, written by adapters/deepseek-harness/install.py --register-dsh-home.
+# To pin an instance in one profile instead, override this row in the profile's patch layer:
+#
+#   - id: holon-native
+#     name: holon-native
+#     config:
+#       holonHome: /absolute/path/to/instance
+#       command: ["holon"]
+#       allowWrites: false
+#
+- insert:
+    - id: holon-native
+      name: holon-native
+      config: {}

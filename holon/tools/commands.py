@@ -30,7 +30,7 @@ FAMILY_ORDER = [
     ("intactness", "lint", "doctor", "gc", "backup", "restore", "keys", "guard", "guards", "incident"),
     ("isolation: the trust boundary", "isolation", "broker", "mcp", "adapter"),
     ("the harness contract", "contract", "classify", "route"),
-    ("the instance", "init", "status", "tick", "events", "charter", "metrics", "help"),
+    ("the instance", "init", "status", "tick", "events", "charter", "metrics", "config", "help"),
 ]
 
 # Each family's one-line framing, so a reader knows why these commands are together.

@@ -232,3 +232,97 @@ One correction for whoever picks this up next: **G8 is not actionable today.** M
 board), and the Chair disabled both `wake` schedules on 2026-10-30 with no note. Hiring into a
 department nothing can fire spends the Chair's budget on a body that cannot be woken. The clock
 must be armed first, and that is a decision, not a bug.
+
+---
+
+## §8. Re-measurement, 2026-11-05 — the rows that moved, and the one that did not
+
+**This section supersedes nothing above it and is not a second plan.** It is a re-audit of §1's
+eight rows against measured evidence, recorded here because the question that asked for it
+("is everything done, so this can be archived?") is a question this document can only answer
+with a measurement. The measurements are from the live home, the distribution at HEAD, and a
+scratch copy of the live home; every figure below names its source.
+
+### The claim this section tests, stated before measuring
+
+**"What is left is the Chair's four decisions and nothing else."** Measured, that claim is
+**false in one direction**: G7 is a kernel-build gap, not a Chair decision, and §7's own table
+calls it "me". The four Chair rows are also all still open. Nothing here converts an operator
+decision into a closed gap by relabelling it.
+
+### Per-row re-measurement
+
+| # | §1's row | measured today | verdict |
+|---|---|---|---|
+| G7 | steps have no writer and no reader | **not delivered as §4 describes it.** `7e9ee30` wired one validator into `validate` (`contract._step_problems`), which the ledger already records; the writer (`--steps`) and the DAG reader do not exist, and the floor's priced kind `agent` is **not in `STEP_KINDS`**, so the gate's own envelope is refused at submit | **open — kernel work** |
+| G8 | revenue departments have no employees | unchanged and **still blocked**: 0 employees in career-pipeline, freelance-agency and architectural-leads; both `wake` schedules `enabled=0`; `schedule.nowake` is a live error | **open — needs the clock armed first** |
+| G9 | 26 approval gates, all `lane=full` | unchanged: 26 ready `approve` gates, 11 + 11 + 3+1 across the three revenue departments, 25 at G3 and 1 at G2, all `source=kernel`, `approver=chair` | **open — Chair** |
+| G10 | a dead heartbeat says nothing | **closed and guarded.** Both branches escalate to `error`; the check runs with no tick; three guards assert severity and both threshold directions | closed |
+| G11 | isolation.reach names two paths | **open, and wider: five paths.** Derived right, applied stale — and the grant does not stick | **open — Chair** |
+| G12 | skills.export_stale | **closed and guarded**; four guards pass. The §7 citation `86bbe07` is an orphan (not an ancestor of HEAD); the in-history commit is `ef30adb` | closed (citation stale) |
+| G13 | audit.chain's one break at 1815 | **open, unchanged:** 3578 events, 0 hash-recompute mismatches, 1 linkage break at seq 1815, nothing attested | **open — Chair** |
+| G14 | smoke gates from another stack's tree | **closed and guarded**; two guards pass | closed |
+
+### What G7 actually needs, so the row is not re-closed by a smaller one
+
+§4's four parts were measured one at a time. What shipped is part of part 1.
+
+1. **The contract's `steps` field** — exists as `F("text_or_list")` on the plan variant; `kind`
+   and `depends_on` are validated, `command`/`retry`/`stop_if` are validated nowhere.
+2. **A writer** — `holon operation add` has no `--steps`; `Kernel.add_operation` has no `steps`
+   parameter; `service.py`'s operation builder wraps *prose* in a one-element list.
+3. **A reader that materializes a DAG** — the only `task_needs` writers are driven by the
+   decompose branch's `children`/`after`, never by `steps`.
+4. **A live input to the floor** — 0 of the live instance's 52 plan outputs carry step dicts;
+   every one is a one-element list of prose.
+
+**And the defect that makes 1 and 4 contradict each other, which no amount of §4 work will
+fix on its own:** `vocab.STEP_KINDS` omits `agent`, while `grading._complexity_floor` prices
+`kind == "agent"`. `contract.validate` therefore refuses the very step the grader prices and
+the gate names. The vocabulary and the grade disagree on the one word that carries the budget.
+
+**The gate is not met.** No test adds an operation with a script step and a `branch_one`
+fallback and asserts the grade or behaviour. The nearest guard
+(`test_operations.py:128-160`) is a contract-level unit test on a hand-written dict: no
+operation, no script, no body, no DAG, no grade — and AGENTS.md's own law requires a test
+crossing the seam with the other side's real artifact.
+
+### G11's five paths, and why one command is not enough
+
+Measured host-side through the isolation runner (the only namespace-independent view; see the
+trap below):
+
+| path | cause |
+|---|---|
+| the harness build's version directory and its `jcode` binary | the parent `~/.jcode` is mode 700 with `mask::---`, so the traversal grant is masked away |
+| `~/.local/bin/operant` | mode 700, `mask::---`: its own named `r-x` grant reads `#effective:---` |
+| the mise-installed `claude` version directory and its binary | a stale `user:<agent>:---` on `~/.local/share`, inherited from an apply run before the reach grew |
+
+`reach()` returns these paths and `setup_plan` grants them, so the derivation is right and the
+applied set is stale. **But the grant does not stick:** `~/.local/bin/operant` was
+rewritten at 05:54 UTC today as a mode-700 ELF (its older copies are 755). A `chmod 700` on an
+ACL-bearing path rewrites the mask and zeroes `other`, so every apply is undone by the next
+harness install. The plan contains 249 `setfacl` commands and **zero `chmod`** — nothing
+re-establishes a mode the harness erased.
+
+### A measurement trap this re-audit hit, recorded because it cost a wrong conclusion
+
+An early reading of these paths said the ACLs carried *no* agent user at all, that `setfacl`
+refused them as `Malformed access ACL ... Duplicate entries`, and that `apply --force` would
+therefore report FAILED. **All three were wrong, and all three came from the instrument.**
+This session runs in a user namespace that maps only uid 1000 (`/proc/self/uid_map` → `1000 0 1`),
+so every other uid collapses to `-1` and two distinct agent accounts (955 and 956) look like a
+duplicate entry. Run host-side through the runner, the same paths show the agent user's entry
+by name, and `setfacl` fails at **permission**, not at **parse**. The rule this session's own
+§2 already records now has a second instance: **a probe observes through its own namespace, and
+a probe that cannot name the uid it is asking about is not measuring the live filesystem.**
+
+### What this means for "archive this document"
+
+§7's table would need four rows rewritten and one closed to be true. The document's own
+archive convention (`AGENTS.md:97`, `docs/archive/INDEX.md`) requires a successor record
+naming what replaced it. This section is a re-measurement, not a successor: it names no new
+plan, so the rows above are still live. **The honest state is: kernel work closed for 3 of 8
+rows, 1 row (G7) unbuilt, and 4 rows awaiting Chair acts.** Archiving now would retire a
+register whose rows still have owners and work attached.
+

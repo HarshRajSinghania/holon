@@ -219,4 +219,6 @@ is not in this file fails `holon lint` — so this file can never drift from the
 | `holon charter authority` `--set-for` `--task-class` `--max-grade` `--reason` | any | who may approve which grade (--set-for: Chair only) |
 | `holon charter autonomy` | any | effective autonomy policy per department (holon.toml [autonomy]) |
 | `holon metrics` `--dept` `--days` | any | the feedback loops' sensors, each with its counter-metric |
+| `holon config set` <section> <key> <value> | chair | set one configuration key in holon.toml (the value is typed by the value already in force, and the file is re-parsed before the change is accepted) |
+| `holon config show` | chair | the effective configuration: every key, its value, and whether holon.toml sets it or the kernel's default applies |
 | `holon help` | any | this command registry (--json: the manifest agents read) |

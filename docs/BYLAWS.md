@@ -191,6 +191,15 @@ change this policy. `holon charter autonomy` shows the effective policy per depa
 | `[objectives]` | `review_every_days` | 7 | an objective is reviewed when its pool finishes a cycle, and at least this often while anything moves |
 | `[classes]` | `org`, `<dept slug>` | (any) | the task classes work may carry, organization-wide and per department; agents proposing work with another class breach the contract, `holon doctor` warns about open work outside it. Track records (novelty floors, earned authority, sampling) accrue per class, so a small shared taxonomy is what lets trust grow |
 
+**Reading and changing it.** `holon config show` publishes every key above with its effective
+value and whether `holon.toml` sets it or the kernel's default applies, plus the keys the file
+carries that the kernel does not read (a typo, or a setting from another version).
+`holon config set SECTION KEY VALUE` changes one: the value is typed by the value already in
+force (so `budget_chars` cannot become a string), the file's comments and every other key survive,
+and a change that would not parse is refused rather than written. Nested tables
+(`[scope.dept.<slug>]`, `[budget.employee.<id>]`) are read but not set here: they travel with a
+department's archive (`holon dept export`/`import`).
+
 ## 7. Operations
 
 `holon backup --to DIR` takes a consistent copy of an instance while it runs (SQLite's online

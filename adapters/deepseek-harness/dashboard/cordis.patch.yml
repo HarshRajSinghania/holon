@@ -1,0 +1,6 @@
+- insert:
+    - id: holon-dashboard
+      name: '@local/holon-dashboard'
+      config:
+        refreshMs: 20000
+        allowActions: true

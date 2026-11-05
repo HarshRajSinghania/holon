@@ -36,7 +36,11 @@ GENOME = Path(__file__).resolve().parent.parent / "vendor" / "genome.py"
 #      stale suppressions hid archive files with no INDEX rows and an orphan STATUS page for
 #      two days. guard: `GenomePin.test_a_stale_pointer_ignore_is_finding_w00a` and
 #      `test_w00a_fires_and_w00b_fires_and_a_bare_name_does_not` in tests/test_kb.py.
-GENOME_SHA256 = "66dfd6eb8cce969b6d3b7d4839320e69b31cac7f584d71f037f29e8e60c9becd"
+#   3. F1: re-applied after every re-vendor (scripts/genome_apply_f1.py), because a re-vendor
+#      wipes them. The pin below moves with the vendored CLI, so a checksum that was pinned
+#      before the apply was re-run is the pin's own defect: the whole knowledge layer refuses to
+#      run (`does not match its pinned checksum`) until it is corrected.
+GENOME_SHA256 = "f7ef3e4e3e758a313308f0e71021e282d383d8fe1b12189f99cb382020a7655d"
 READ_VERBS = ("find", "view", "ask", "wake", "show", "lint")
 WRITE_VERBS = ("new", "move", "set", "link")
 JSON_VERBS = ("find", "ask", "show", "new")  # the verbs with a --json form

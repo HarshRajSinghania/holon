@@ -137,12 +137,18 @@ def write_driver(home: Path, name: str, toml: str) -> Path:
     return drivers / f"{name}.toml"
 
 
-def verify(home: Path, harness: str, version_args: tuple[str, ...] = ("--version",)) -> str:
+def verify(home: Path, harness: str, version_args: tuple[str, ...] = ("--version",),
+           env_extra: dict[str, str] | None = None) -> str:
     """The harness's own version line, run with the instance's homes in place: the last
-    step proves the pin still starts after everything else was written."""
+    step proves the pin still starts after everything else was written.
+
+    `env_extra` is for an adapter whose harness needs its isolated home to start (a harness
+    that reads its config before printing a version); the ambient names of the same homes are
+    dropped first, as before, so a caller's own harness state cannot decide the probe."""
     env = dict(os.environ)
-    for home_env in ("HERMES_HOME", "JCODE_HOME"):
+    for home_env in ("HERMES_HOME", "JCODE_HOME", "DSH_HOME"):
         env.pop(home_env, None)
+    env.update(env_extra or {})
     p = subprocess.run([harness, *version_args], capture_output=True, text=True, timeout=60, env=env)
     return (p.stdout or p.stderr).strip() or f"{harness} printed nothing for --version"
 

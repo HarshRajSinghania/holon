@@ -739,7 +739,17 @@ WorkingDirectory=/var/lib/{agent}
 # recording a unit that looks enabled. Measured live 2026-10-26 on the Chair's activation.
 # The kernel user's home is named explicitly (the `me` this plan was generated for).
 Environment=PATH={me.pw_dir}/bin:{me.pw_dir}/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/bin/sh -c 'H=$(dirname $(dirname $(readlink -f $(command -v holon)))) && PYTHONPATH="$H" exec {sys.executable} -m holon.execution.isolation runner --address {runner_addr} --allow-uid {me.pw_uid}'
+# The interpreter is resolved at START TIME, like the tree. The 2026-10-21 rule was "the unit
+# names no tree"; baking `sys.executable` broke it for every deployment whose interpreter lives
+# INSIDE the checkout — a venv at <checkout>/.venv is the common case, and then the unit names
+# <checkout> again, in the one field the rule was about. Measured 2026-11-05 on a checkout whose
+# kernel ran from its own .venv: the root script carried the checkout path and moving the tree
+# would have killed every agent process with nothing in the journal naming the cause.
+# `command -v python3` is resolved by the unit's own PATH, which names the operator's bin dirs
+# first — so an operator whose python3 is a venv gets that one, and the distribution's launcher
+# (bin/holon) resolves the same way. The kernel's own interpreter is NOT assumed: the runner
+# only needs a python that can import the package the resolved H names.
+ExecStart=/bin/sh -c 'H=$(dirname $(dirname $(readlink -f $(command -v holon)))) && PYTHONPATH="$H" exec python3 -m holon.execution.isolation runner --address {runner_addr} --allow-uid {me.pw_uid}'
 Restart=always
 RestartSec=10
 NoNewPrivileges=yes

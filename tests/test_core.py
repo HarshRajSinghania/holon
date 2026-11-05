@@ -396,6 +396,61 @@ class Migrations(unittest.TestCase):
                          "the driver sets variables the contract's rule would never accept as "
                          "documented — the gate could not pass, so no reader trusts it")
 
+    def test_the_apply_kind_a_row_stores_is_one_the_applier_registry_carries(self):
+        """The 2026-10-31 rename moved the applier key from "routine" to "operation" in the code, and
+        its audit answered "no migration names the word" -- true of the schema and blind to the
+        DATA. A plan's output body is JSON, so the key lives inside a JSON document, and the rows
+        filed before the rename carry the old word.
+
+        Measured on the live instance 2026-11-05: 36 of 52 plan outputs carry `"kind": "routine"`,
+        and **every one of the 26 ready approval gates** sits on one of them. The consequence is a
+        live organization where the Chair's approve/reject is unreachable: `work.decide` looks the
+        applier up by the string the row stores, the registry carries "operation", and the lookup
+        raises a KeyError inside the approval transaction rather than a refusal a reader can act
+        on. The repair is the migration's UPDATE; this guard holds BOTH halves -- the repair fixes
+        the row, and the registry has the word the repair writes -- so the two can never drift
+        apart again.
+        """
+        from holon.execution.service import Kernel
+        from holon.core.paths import Home
+
+        k = Kernel(Home(Path(tempfile.mkdtemp()) / "home"))
+        k.close()
+        self.assertIn("operation", k.work.appliers, "the applier the repair writes must be carried")
+        self.assertNotIn("routine", k.work.appliers,
+                         "the old word is not an applier: a row that still carries it fails at approval")
+
+        conn = sqlite3.connect(":memory:", isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        applied = migrate(conn, "work")
+        self.assertIn("0019_apply_kind_routine_to_operation.sql", applied,
+                      "the repair must be part of the shipped migration set")
+        # the row the old code wrote, on a schema that already exists
+        for tid in ("t1", "t2"):
+            conn.execute("INSERT INTO tasks (id, root_id, depth, stage, source, title, intent, status, "
+                         "created_at, updated_at, lane) VALUES (?,'r',1,'plan','kernel','t','i','done','x','x','full')",
+                         (tid,))
+        conn.execute("INSERT INTO outputs (id, task_id, kind, body, summary, documentation, created_at) "
+                     "VALUES ('o1','t1','plan',?,'s','d','x')",
+                     (json.dumps({"kind": "plan", "steps": ["x"], "apply": {"kind": "routine",
+                                                                         "cron": "0 6 * * *"}}),))
+        conn.execute("INSERT INTO outputs (id, task_id, kind, body, summary, documentation, created_at) "
+                     "VALUES ('o2','t2','plan',?,'s','d','x')",
+                     (json.dumps({"kind": "plan", "steps": ["x"], "apply": {"kind": "operation",
+                                                                         "cron": "0 6 * * *"}}),))
+        # the repair as it ships: the file's own SQL, which is what an upgrading instance runs
+        pkg = resources.files("holon.migrations").joinpath("work")
+        repair = pkg.joinpath("0019_apply_kind_routine_to_operation.sql").read_text()
+        conn.executescript(repair)
+        bodies = {r["id"]: json.loads(r["body"])["apply"]["kind"]
+                  for r in conn.execute("SELECT id, body FROM outputs WHERE id IN ('o1','o2')")}
+        self.assertEqual(bodies["o1"], "operation", "the row written by the old code is repaired")
+        self.assertEqual(bodies["o2"], "operation", "a row already carrying the new word is untouched")
+        conn.executescript(repair)
+        stale = conn.execute("SELECT count(*) FROM outputs WHERE body LIKE '%\"kind\": \"routine\"%'").fetchone()[0]
+        self.assertEqual(stale, 0, "no row may keep the word the registry does not carry")
+        self.assertEqual(migrate(conn, "work"), [], "the migration set is idempotent")
+
     def test_idempotent(self):
         conn = sqlite3.connect(":memory:", isolation_level=None)
         conn.row_factory = sqlite3.Row

@@ -105,3 +105,47 @@ Live doctor reports **4 errors**, and each is outside this outline's rows:
 
 **The outline is therefore archivable**: every row it carried is either closed with the
 measurement above or is a stack-B defect that A cannot close and never waits on.
+
+## The defect that had to be fixed before the decision was reachable
+
+The G9 approvals could not have been executed at all before a data repair, and the reason is
+worth recording because it is the same class this ledger keeps meeting: **a guard that
+audited the wrong thing.**
+
+The 2026-11-01 rename moved the applier key from `"routine"` to `"operation"` in the code,
+and its own audit asked whether a data migration was needed. It answered:
+
+> no applied migration names `routine` in a view, a constraint or a column — they are
+> comments only — and no live row stores it, so the rename needs no data migration
+
+That answer was right about the schema and **blind to the data**: a plan's output body is a
+JSON document, and the `apply.kind` string lives *inside* it. Measured on the live instance,
+**36 of the 52 plan outputs carried `"kind": "routine"`**, and every one of the 26 pending
+gates sat on one of them. So `work.decide` looked the applier up by a word the registry did
+not carry and raised `KeyError: 'routine'` inside the approval transaction — a crash, not a
+refusal a reader can act on, and the Chair's decision was unreachable.
+
+The repair is a **data** migration (`0019_apply_kind_routine_to_operation.sql`), bounded by
+the value it matches. The guard holds both halves — that the repair is shipped, and that the
+registry carries the word the repair writes — so the two cannot drift apart again:
+`test_the_apply_kind_a_row_stores_is_one_the_applier_registry_carries`.
+
+**The generalisable lesson, which is the ledger's own `ref.guard` law one layer out:** the
+rename's guard audited *migrations and schema objects*, because that is where the old word
+was visible to it, and it concluded that no row carried it. The row was a JSON string. **A
+guard that audits where the value is easy to see has not audited where the value is.**
+
+## One defect found by the suite, on the way
+
+Running the full suite with the checkout's **own** venv python — the way a developer runs it
+— exposed a pre-existing defect that CI (which uses the system `python3`) could not see. The
+2026-10-21 isolation fix resolved the *checkout* at start time but baked the *interpreter*
+into the same line, so the unit named a tree again whenever the interpreter lived inside one —
+and a venv at `<checkout>/.venv` is the common case. Moving the checkout would have killed
+every agent process with nothing in the journal naming the cause. The interpreter is now
+resolved at start time like the tree, and the guard passes under both interpreters.
+
+**What the suite says, measured on this tree and at pristine HEAD:** 1018 tests, 1 failure +
+2 errors; the same three at pristine HEAD (928 tests, 4 failures + 11 errors). The three are
+environmental — two need PyYAML, which this venv does not have, and one is a `/var/tmp` ACL
+artefact of this sandbox. **Nothing here is new.** `lint --strict`: 0 errors, 0 warnings.

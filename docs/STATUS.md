@@ -22,7 +22,34 @@ which decisions the Chair has already made (do not re-open them), and what comes
 in the same commit as any change it describes. Hosts, ids and keys stay out of it (AGENTS.md).
 The emitted decision/regression registry is [`docs/RECORDS.md`](RECORDS.md) (`scripts/genome`).
 
-Last updated: 2026-11-05 (**G7 closed: an operation's steps are the DAG a firing runs.**
+Last updated: 2026-11-05 (**the Chair's four decisions, executed.** The 2026-10-31 outline's
+remaining rows were not kernel work — they were the Chair's own approve/reject, clock, hire and
+signed re-link. All four are now executed and measured, and the outline is archived with every row
+closed. **G9:** all 26 imported revenue operations approved on objectives, none rejected — every
+one is a named live function in its department's charter mandate; 0 ready approval gates remain,
+45 approve stages done; 25 land OFF by the I1 import rule, so the approval buys the record of
+intent and not a firing loop. The 26th (`dad-arch-materials-refresh`, the one gate that starts on
+approval) was refused by the staffing gate until architectural-leads had a body, and approved
+after the hire. **The decision was unreachable before a data repair:** every one of those 26
+approvals died with `KeyError: 'routine'` — the 2026-11-01 rename moved the applier key in the
+code and audited the *schema* rather than the *data*, while 36 live plan outputs stored the old
+word inside their JSON body; migration 0019 repairs them and
+`test_the_apply_kind_a_row_stores_is_one_the_applier_registry_carries` holds both halves.
+**G8:** the clock armed first (both existing `wake` schedules enabled), then one `maker` hired per
+surviving revenue department — Nila (career-pipeline), Remy (freelance-agency), Sena
+(architectural-leads) — each with its own `execute` wake; 5 enabled wake schedules live, the three
+revenue departments went from 0 employees to 1 each, and `schedule.nowake` is gone from doctor.
+**G11:** `holon isolation apply --force` run; all five previously-denied paths measured READABLE
+host-side by the runner acting as the agent user, `UNWRITABLE: []`, `READABLE SECRETS: []`, and
+`isolation.reach` no longer appears in doctor. **G13:** `holon audit attest` under the Chair key;
+the attestation is event 3584 on `chain:1815`, hash-chained, and the chain reports one linkage
+break with 0 recomputation mismatches across 3,756 events. Live doctor: **11 errors → 4**, and the
+4 are 3 stack-B script defects in career-pipeline (A's alarm surface, the operator's to fix, per
+the ledger row) plus the attested chain break. The evidence is
+[`docs/design/2026-11-05-the-chairs-four-decisions-executed.md`](design/2026-11-05-the-chairs-four-decisions-executed.md).)
+The G7 block below is left as written, because it says what was true then.
+
+Last updated before that: 2026-11-05 (**G7 closed: an operation's steps are the DAG a firing runs.**
 Re-measured 2026-11-05 against the distribution and the live instance, the 2026-10-31 outline's
 "done (`7e9ee30`)" was true only of the re-scoped half: that commit wired the *validator*, and
 the outline's own §4 feature — a writer and a reader — was unbuilt, with no live plan output

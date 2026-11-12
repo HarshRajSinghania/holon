@@ -1,0 +1,84 @@
+---
+name: Bug report
+description: Something does not work. Say what you did, what you expected, and what happened.
+title: "[bug] "
+labels: bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Two things make a bug report useful to a
+        maintainer: **the exact steps**, and **what you expected instead**.
+
+        If you want to pick up the fix yourself rather than report it, the
+        *good first issue* template is the one you want.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: What you ran — `holon --version`, or the commit SHA.
+      placeholder: v0.94.1 / a1b2c3d
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface
+      description: Where the problem showed up.
+      options:
+        - the kernel (holon CLI)
+        - the capability registry / unit manifests
+        - the isolation boundary (ACLs, the runner, the broker)
+        - a driver or adapter
+        - the read API
+        - documentation only
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The error, the wrong output, or the behaviour you saw.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >
+        The exact commands, in order, from a clean state. A copy-pasteable block
+        is worth more than a paragraph — and if the reproduction needs a
+        particular home, config or database, say which.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: where
+    attributes:
+      label: Where in the code
+      description: >
+        If you found it: the file and the line. If you did not, leave this
+        empty — it is not a required part of a good report.
+      placeholder: holon/execution/service.py:L1946
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I searched the open issues for this one.
+        - label: I ran the test suite and it passes on `main` (so this is new).
+        - label: This is not a security problem (those go to Security → Report a vulnerability).
